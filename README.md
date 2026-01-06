@@ -23,26 +23,26 @@ A Claude Code hook that:
 
 ```
 Write/Edit hook fires
-        │
-        ▼
+        |
+        v
    Is this code?
    (not .md/.json/etc)
-        │
-        ▼
+        |
+        v
    Search KB for similar
-        │
-   ┌────┴────┐
+        |
+   +----+----+
 Found      Not Found
-   │           │
-   ▼           ▼
+   |           |
+   v           v
 Inject     Just write
 context
-   │           │
-   └─────┬─────┘
-         ▼
+   |           |
+   +-----+-----+
+         v
    Claude writes
-         │
-         ▼
+         |
+         v
    Extract diff
    Store in KB
 ```
@@ -51,13 +51,361 @@ context
 
 - Claude Code hook (pre/post Write/Edit)
 - Local SQLite + embeddings KB
+- Hybrid search (keyword + semantic)
 - Personal developer memory
 - Session-to-session continuity
 - No cloud, no API calls - everything local
+- CLI for search and management
+
+## Installation
+
+### From Source
+
+```bash
+# Clone the repository
+git clone https://github.com/DragonShadows1978/AI-AfterImage.git
+cd AI-AfterImage
+
+# Install base package
+pip install -e .
+
+# Install with embedding support (recommended)
+pip install -e ".[embeddings]"
+```
+
+### Requirements
+
+- Python 3.10+
+- SQLite (built-in)
+- sentence-transformers (optional, for semantic search)
+
+## Quick Start
+
+### 1. Initialize Configuration
+
+```bash
+afterimage config --init
+```
+
+This creates `~/.afterimage/config.yaml` with default settings.
+
+### 2. Install Claude Code Hook
+
+Copy the hook to your Claude Code hooks directory:
+
+```bash
+mkdir -p ~/.claude/hooks
+cp hooks/afterimage_hook.py ~/.claude/hooks/
+```
+
+Configure the hook in `~/.claude/hooks/afterimage.json`:
+
+```json
+{
+  "name": "afterimage",
+  "description": "Episodic memory for code",
+  "pre_tool": ["Write", "Edit"],
+  "post_tool": ["Write", "Edit"],
+  "script": "afterimage_hook.py"
+}
+```
+
+### 3. Ingest Existing Transcripts (Optional)
+
+If you have existing Claude Code transcripts:
+
+```bash
+# Ingest all transcripts from default location
+afterimage ingest
+
+# Or from a specific directory
+afterimage ingest -d /path/to/transcripts
+
+# With verbose output
+afterimage ingest -v
+```
+
+### 4. Search Your Memory
+
+```bash
+# Search for code you've written before
+afterimage search "authentication middleware"
+
+# Filter by file path
+afterimage search "validate" --path validators
+
+# Output as JSON
+afterimage search "database connection" --json
+```
+
+## CLI Commands
+
+| Command | Description |
+|---------|-------------|
+| `afterimage search <query>` | Search the knowledge base |
+| `afterimage ingest` | Ingest transcripts into KB |
+| `afterimage stats` | Show KB statistics |
+| `afterimage recent` | Show recent entries |
+| `afterimage export` | Export KB to JSON |
+| `afterimage clear` | Clear the knowledge base |
+| `afterimage config` | Show/create configuration |
+
+### Search Options
+
+```bash
+afterimage search "query" [options]
+
+Options:
+  -l, --limit N          Maximum results (default: 5)
+  -t, --threshold FLOAT  Minimum relevance (default: 0.3)
+  -p, --path PATTERN     Filter by file path
+  --json                 Output as JSON
+```
+
+### Ingest Options
+
+```bash
+afterimage ingest [options]
+
+Options:
+  -f, --file PATH        Specific transcript file
+  -d, --directory PATH   Directory to search
+  --no-embeddings        Skip embedding generation
+  -v, --verbose          Verbose output
+```
+
+## Architecture
+
+```
+AI-AfterImage/
++-- afterimage/
+|   +-- __init__.py
+|   +-- kb.py              # Knowledge base (SQLite + FTS5)
+|   +-- filter.py          # Code vs artifact filter
+|   +-- embeddings.py      # Embedding generation (sentence-transformers)
+|   +-- search.py          # Hybrid search (keyword + semantic)
+|   +-- inject.py          # Context injection formatting
+|   +-- extract.py         # Transcript parsing
+|   +-- cli.py             # Command line interface
++-- hooks/
+|   +-- README.md          # Hook installation guide
+|   +-- afterimage_hook.py # Claude Code hook script
++-- tests/
+|   +-- test_kb.py
+|   +-- test_filter.py
+|   +-- test_search.py
+|   +-- test_extract.py
+|   +-- test_inject.py
+|   +-- test_integration.py
++-- pyproject.toml
++-- setup.py
++-- README.md
++-- LICENSE
+```
+
+### Core Components
+
+#### Knowledge Base (`kb.py`)
+
+SQLite database with FTS5 full-text search:
+
+- **Table**: `code_memory`
+  - `id`: Unique identifier
+  - `file_path`: Where the code was written
+  - `old_code`: Previous content (for Edit) or NULL (for Write)
+  - `new_code`: The code that was written
+  - `context`: Conversation context (why it was written)
+  - `timestamp`: When it was written
+  - `session_id`: Which Claude Code session
+  - `embedding`: Vector embedding (BLOB)
+
+- **Location**: `~/.afterimage/memory.db`
+
+#### Code Filter (`filter.py`)
+
+Determines if a file is "code" vs artifacts:
+
+- **Code extensions**: .py, .js, .ts, .jsx, .tsx, .rs, .go, .java, .c, .cpp, etc.
+- **Skip extensions**: .md, .json, .yaml, .txt, .log, .env
+- **Skip paths**: artifacts/, docs/, research/, node_modules/
+- **Content heuristics**: Fallback for unknown extensions
+
+#### Embedding System (`embeddings.py`)
+
+Local embeddings using sentence-transformers:
+
+- **Model**: all-MiniLM-L6-v2 (90MB)
+- **Runs locally**: No API calls
+- **CUDA support**: Uses GPU if available
+- **Cached**: Embeddings cached in KB for fast retrieval
+
+#### Hybrid Search (`search.py`)
+
+Combines keyword and semantic search:
+
+```
+relevance = (fts_weight * fts_score) + (semantic_weight * semantic_score)
+```
+
+- **FTS5**: SQLite full-text search with BM25 scoring
+- **Semantic**: Cosine similarity between embeddings
+- **Default weights**: FTS 40%, Semantic 60%
+
+#### Context Injection (`inject.py`)
+
+Formats search results for Claude:
+
+```
+You have written similar code before (3 matches):
+
+### Match 1 (src/validators.py)
+
+```python
+def validate_email(email):
+    return '@' in email
+```
+
+**Context:** Added email validation for user signup
+
+*Relevance: 85%*
+```
+
+### Hook System
+
+The Claude Code hook integrates AfterImage into your workflow:
+
+#### Pre-Write Hook
+
+Before Claude writes code:
+1. Check if target file is code (filter.py)
+2. Search KB for similar code
+3. If found, inject context into conversation
+4. Pass through to actual Write/Edit
+
+#### Post-Write Hook
+
+After Claude writes code:
+1. Check if file is code
+2. Extract the code change
+3. Generate embedding
+4. Store in KB with context
+
+## Configuration
+
+`~/.afterimage/config.yaml`:
+
+```yaml
+# Search settings
+search:
+  max_results: 5
+  relevance_threshold: 0.6
+  max_injection_tokens: 2000
+
+# Filter settings
+filter:
+  code_extensions:
+    - .py
+    - .js
+    - .ts
+    - .jsx
+    - .tsx
+    - .rs
+    - .go
+    - .java
+    - .c
+    - .cpp
+    - .h
+    - .rb
+    - .php
+    - .swift
+    - .kt
+  skip_extensions:
+    - .md
+    - .json
+    - .yaml
+    - .yml
+    - .txt
+    - .log
+    - .env
+  skip_paths:
+    - artifacts/
+    - docs/
+    - research/
+    - test_data/
+    - __pycache__/
+    - node_modules/
+
+# Embedding model
+embeddings:
+  model: all-MiniLM-L6-v2
+  device: cpu  # or cuda
+```
+
+## Performance
+
+| Operation | Target | Typical |
+|-----------|--------|---------|
+| Model load | <5s | 2-3s |
+| Embedding generation | <50ms | 20-30ms |
+| Hybrid search | <100ms | 30-50ms |
+| FTS search only | <10ms | 2-5ms |
+
+## Development
+
+### Running Tests
+
+```bash
+# Install dev dependencies
+pip install -e ".[dev]"
+
+# Run all tests
+pytest
+
+# Run with coverage
+pytest --cov=afterimage
+
+# Run specific test file
+pytest tests/test_inject.py
+
+# Run slow tests (with embeddings)
+pytest -m slow
+```
+
+### Test Coverage
+
+The test suite covers:
+- Knowledge Base operations
+- Code filtering logic
+- Transcript extraction
+- Search functionality
+- Context injection formatting
+- End-to-end integration
+- Hook script handling
+
+## License
+
+MIT License - See [LICENSE](LICENSE) for details.
 
 ## Status
 
-Specification phase.
+**Working implementation** - Core functionality complete:
+- [x] Knowledge Base with FTS5
+- [x] Code filtering
+- [x] Transcript extraction
+- [x] Embedding generation
+- [x] Hybrid search
+- [x] Context injection
+- [x] CLI commands
+- [x] Claude Code hooks
+- [x] Test suite
+
+## Contributing
+
+Contributions welcome! Please:
+1. Fork the repository
+2. Create a feature branch
+3. Add tests for new functionality
+4. Submit a pull request
 
 ## Name
 
