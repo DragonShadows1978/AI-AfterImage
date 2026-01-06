@@ -61,6 +61,7 @@ context
 - Personal developer memory
 - Session-to-session continuity
 - No cloud, no API calls - everything local
+- **Works offline** after initial model download
 - CLI for search and management
 
 ## Installation
@@ -102,18 +103,46 @@ Copy the hook to your Claude Code hooks directory:
 ```bash
 mkdir -p ~/.claude/hooks
 cp hooks/afterimage_hook.py ~/.claude/hooks/
+chmod +x ~/.claude/hooks/afterimage_hook.py
 ```
 
-Configure the hook in `~/.claude/hooks/afterimage.json`:
+Add the hook to your Claude Code settings (`~/.claude/settings.json`):
 
 ```json
 {
-  "name": "afterimage",
-  "description": "Episodic memory for code",
-  "pre_tool": ["Write", "Edit"],
-  "post_tool": ["Write", "Edit"],
-  "script": "afterimage_hook.py"
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/path/to/home/.claude/hooks/afterimage_hook.py"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/path/to/home/.claude/hooks/afterimage_hook.py"
+          }
+        ]
+      }
+    ]
+  }
 }
+```
+
+**Important**: Update the path to match your home directory (e.g., `/home/username/.claude/hooks/afterimage_hook.py`).
+
+Set the AfterImage path environment variable (or edit the hook to set the path):
+
+```bash
+export AFTERIMAGE_PATH="$HOME/AI-AfterImage"
 ```
 
 ### 3. Ingest Existing Transcripts (Optional)
@@ -278,23 +307,67 @@ def validate_email(email):
 
 ### Hook System
 
-The Claude Code hook integrates AfterImage into your workflow:
+The Claude Code hook integrates AfterImage into your workflow using a **deny-then-allow pattern** that ensures Claude actually sees relevant past code before writing.
 
-#### Pre-Write Hook
+#### How It Works
 
-Before Claude writes code:
-1. Check if target file is code (filter.py)
-2. Search KB for similar code
-3. If found, inject context into conversation
-4. Pass through to actual Write/Edit
+```
+Claude attempts Write/Edit
+        |
+        v
+   AfterImage hook fires
+        |
+        v
+   Search KB for similar code
+        |
+   +----+----+
+Found      Not Found
+   |           |
+   v           v
+ DENY       Allow
+ + show     (write
+ context    proceeds)
+   |
+   v
+Claude SEES the past code
+(deny reason shown to Claude!)
+   |
+   v
+Claude retries Write
+        |
+        v
+   Hook recognizes retry
+   (same content hash)
+        |
+        v
+      ALLOW
+        |
+        v
+   File created
+        |
+        v
+   Post-hook stores
+   code in KB
+```
+
+#### Pre-Write Hook (Deny-Then-Allow)
+
+The key insight: Claude Code's hook system shows `permissionDecisionReason` to Claude when a hook returns `deny`. We use this to inject context:
+
+1. **First attempt**: Hook searches KB, finds similar code
+2. **DENY** with reason containing the code examples
+3. Claude **sees** the past code (it's in the deny message!)
+4. Claude **retries** the write (automatically or adjusted)
+5. **Second attempt**: Hook recognizes the same content hash, **allows** it
+
+This ensures Claude has seen relevant patterns before the file is actually written.
 
 #### Post-Write Hook
 
-After Claude writes code:
-1. Check if file is code
-2. Extract the code change
-3. Generate embedding
-4. Store in KB with context
+After Claude successfully writes code:
+1. Check if file is code (not markdown, JSON, etc.)
+2. Generate embedding (optional, for semantic search)
+3. Store in KB with session context
 
 ## Configuration
 
@@ -345,6 +418,46 @@ filter:
 embeddings:
   model: all-MiniLM-L6-v2
   device: cpu  # or cuda
+```
+
+## Offline Mode
+
+AfterImage is designed to work **completely offline** after the initial setup. This ensures your code memory is always accessible, even without internet.
+
+### Initial Setup (Requires Network)
+
+On first use with embeddings enabled, the sentence-transformers model (~90MB) is downloaded and cached:
+
+```bash
+# First use downloads the model to ~/.afterimage/models/
+afterimage search "test"  # Downloads all-MiniLM-L6-v2
+```
+
+### Fully Offline After Setup
+
+After the model is cached, all operations work offline:
+
+- **SQLite database** - Local file storage, no network
+- **FTS5 search** - Built into SQLite, no network
+- **Embeddings** - Model loaded from local cache
+- **Configuration** - Local YAML files only
+
+### What's Cached
+
+| Component | Location | Size |
+|-----------|----------|------|
+| Knowledge Base | `~/.afterimage/memory.db` | Varies |
+| Embedding Model | `~/.afterimage/models/` | ~90MB |
+| Configuration | `~/.afterimage/config.yaml` | <1KB |
+
+### Verifying Offline Readiness
+
+```bash
+# Check if model is cached
+ls ~/.afterimage/models/models--sentence-transformers--all-MiniLM-L6-v2
+
+# Test offline search (disconnect network first to verify)
+afterimage search "function"
 ```
 
 ## Performance
@@ -403,7 +516,8 @@ MIT License - See [LICENSE](LICENSE) for details.
 - [x] Context injection
 - [x] CLI commands
 - [x] Claude Code hooks
-- [x] Test suite
+- [x] Test suite (163 tests, 88% coverage)
+- [x] Offline mode (works without network after model download)
 
 ## Contributing
 

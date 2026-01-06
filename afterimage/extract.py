@@ -235,6 +235,14 @@ class TranscriptExtractor:
                 if isinstance(item, dict) and item.get("type") == "tool_use":
                     return item.get("name"), item.get("input", {})
 
+        # Format 3b: Claude Code format - nested in message.content
+        if "message" in entry and isinstance(entry["message"], dict):
+            message = entry["message"]
+            if "content" in message and isinstance(message["content"], list):
+                for item in message["content"]:
+                    if isinstance(item, dict) and item.get("type") == "tool_use":
+                        return item.get("name"), item.get("input", {})
+
         # Format 4: {"toolName": "...", "toolInput": {...}}
         if "toolName" in entry:
             return entry["toolName"], entry.get("toolInput", {})

@@ -2,360 +2,288 @@
 """
 AI-AfterImage Hook for Claude Code.
 
-This hook integrates with Claude Code's hook system to:
-1. Pre-Write/Edit: Search KB for similar code and inject context
-2. Post-Write/Edit: Store the code change in KB for future recall
+Provides episodic code memory through Claude Code's hook system:
+1. Pre-Write/Edit: DENY first attempt with similar code context (Claude sees this!)
+2. Pre-Write/Edit: ALLOW retry attempts (after Claude has seen the context)
+3. Post-Write/Edit: Store the code change in KB for future recall
 
-Hook Configuration:
-    ~/.claude/hooks/afterimage.json:
-    {
-        "name": "afterimage",
-        "description": "Episodic memory for code",
-        "pre_tool": ["Write", "Edit"],
-        "post_tool": ["Write", "Edit"]
-    }
-
-This script is invoked by Claude Code with specific arguments
-based on the hook type and tool being executed.
+The deny-then-allow pattern ensures Claude sees relevant past code BEFORE writing.
 """
 
+import json
 import sys
 import os
-import json
-import argparse
+import re
+import hashlib
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import Optional, Dict, Any
+from typing import Optional
 
-# Add parent directory to path for imports when run as script
-if __name__ == "__main__":
-    parent_dir = Path(__file__).parent.parent
-    sys.path.insert(0, str(parent_dir))
+# Configurable path - users should update this
+AFTERIMAGE_PATH = os.environ.get(
+    "AFTERIMAGE_PATH",
+    str(Path.home() / "AI-AfterImage")  # Default install location
+)
 
-from afterimage.kb import KnowledgeBase
-from afterimage.filter import CodeFilter
-from afterimage.search import HybridSearch
-from afterimage.inject import ContextInjector
+# Try local install first, then fall back to common locations
+SEARCH_PATHS = [
+    AFTERIMAGE_PATH,
+    str(Path.home() / ".local" / "lib" / "afterimage"),
+    "/usr/local/lib/afterimage",
+]
+
+AFTERIMAGE_AVAILABLE = False
+for path in SEARCH_PATHS:
+    if Path(path).exists():
+        sys.path.insert(0, path)
+        try:
+            from afterimage.kb import KnowledgeBase
+            from afterimage.filter import CodeFilter
+            from afterimage.search import HybridSearch
+            AFTERIMAGE_AVAILABLE = True
+            break
+        except ImportError:
+            continue
+
+# Track which operations we've already shown context for (deny once, allow after)
+# Uses file content hash to identify unique write attempts
+SEEN_WRITES_FILE = Path.home() / ".afterimage" / ".seen_writes"
+
+
+def get_content_hash(file_path: str, content: str) -> str:
+    """Generate hash to identify unique write attempts."""
+    key = f"{file_path}:{content[:500]}"
+    return hashlib.md5(key.encode()).hexdigest()[:16]
+
+
+def was_already_shown(content_hash: str) -> bool:
+    """Check if we already showed context for this write attempt."""
+    if not SEEN_WRITES_FILE.exists():
+        return False
+    try:
+        seen = SEEN_WRITES_FILE.read_text().strip().split("\n")
+        # Keep only recent entries (last 100)
+        return content_hash in seen[-100:]
+    except:
+        return False
+
+
+def mark_as_shown(content_hash: str):
+    """Mark this write attempt as having been shown context."""
+    SEEN_WRITES_FILE.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        existing = []
+        if SEEN_WRITES_FILE.exists():
+            existing = SEEN_WRITES_FILE.read_text().strip().split("\n")[-99:]
+        existing.append(content_hash)
+        SEEN_WRITES_FILE.write_text("\n".join(existing))
+    except:
+        pass
 
 
 def get_session_id() -> str:
-    """Get or create session ID for this Claude Code session."""
-    # Try to get from environment (Claude Code may set this)
-    session_id = os.environ.get("CLAUDE_SESSION_ID")
-    if session_id:
-        return session_id
-
-    # Fall back to a generated ID based on current time
-    return f"session_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
-
-
-def pre_write_hook(
-    file_path: str,
-    content: str,
-    context: Optional[str] = None
-) -> Optional[str]:
-    """
-    Pre-write hook: Search for similar code and return injection context.
-
-    Args:
-        file_path: Path to file being written
-        content: Content about to be written
-        context: Optional conversation context
-
-    Returns:
-        Injection context string if similar code found, None otherwise
-    """
-    # Filter: only process code files
-    code_filter = CodeFilter()
-    if not code_filter.is_code(file_path, content):
-        return None
-
-    # Search for similar code
-    search = HybridSearch()
-
-    # Try semantic search on the content
-    results = search.search_by_code(
-        code=content,
-        file_path=file_path,
-        limit=3,
-        threshold=0.5  # Higher threshold for pre-write
+    """Get session ID from environment or generate one."""
+    return os.environ.get(
+        "CLAUDE_SESSION_ID",
+        f"session_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
     )
 
-    if not results:
-        # Try path-based search as fallback
-        path_parts = Path(file_path).parts[-2:]
-        if path_parts:
-            results = search.search_by_path("/".join(path_parts), limit=2)
 
-    if not results:
+def extract_search_terms(content: str, file_path: str) -> str:
+    """Extract meaningful search terms from code content."""
+    terms = []
+
+    # Get imports
+    for m in re.finditer(r'from\s+(\w+)|import\s+(\w+)', content):
+        terms.append(m.group(1) or m.group(2))
+
+    # Get function/class names
+    for m in re.finditer(r'def\s+(\w+)|class\s+(\w+)', content):
+        terms.append(m.group(1) or m.group(2))
+
+    # Get decorators (often indicate patterns like @app.route)
+    for m in re.finditer(r'@(\w+)', content):
+        terms.append(m.group(1))
+
+    # Add file stem
+    terms.append(Path(file_path).stem)
+
+    # Deduplicate while preserving order
+    seen = set()
+    unique = []
+    for t in terms:
+        if t not in seen and len(t) > 2:
+            seen.add(t)
+            unique.append(t)
+
+    return " ".join(unique[:8])
+
+
+def search_similar_code(file_path: str, content: str) -> Optional[str]:
+    """Search KB for similar code and format injection context."""
+    if not AFTERIMAGE_AVAILABLE:
         return None
 
-    # Format injection
-    injector = ContextInjector()
-    injection = injector.format_for_hook(
-        results=results,
-        file_path=file_path,
-        tool_type="Write"
-    )
+    try:
+        code_filter = CodeFilter()
+        if not code_filter.is_code(file_path, content):
+            return None
 
-    return injection
+        query = extract_search_terms(content, file_path)
+        if not query.strip():
+            return None
 
+        search = HybridSearch()
+        results = search.search(query, limit=5, threshold=0.01)
 
-def pre_edit_hook(
-    file_path: str,
-    old_string: str,
-    new_string: str,
-    context: Optional[str] = None
-) -> Optional[str]:
-    """
-    Pre-edit hook: Search for similar edits and return injection context.
+        if not results:
+            return None
 
-    Args:
-        file_path: Path to file being edited
-        old_string: String being replaced
-        new_string: Replacement string
-        context: Optional conversation context
+        # Format the injection - this is what Claude will see!
+        lines = [
+            "",
+            "=" * 60,
+            "📚 AFTERIMAGE: You've written similar code before!",
+            "=" * 60,
+            "",
+            "Review these patterns before proceeding:",
+            ""
+        ]
 
-    Returns:
-        Injection context string if similar code found, None otherwise
-    """
-    # Filter: only process code files
-    code_filter = CodeFilter()
-    if not code_filter.is_code(file_path, new_string):
+        seen_paths = set()
+        for r in results:
+            short_path = "/".join(Path(r.file_path).parts[-3:])
+            if short_path in seen_paths:
+                continue
+            seen_paths.add(short_path)
+
+            if len(seen_paths) > 3:
+                break
+
+            code_preview = r.new_code[:400]
+            lines.append(f"**From:** `{short_path}`")
+            lines.append("```")
+            lines.append(code_preview)
+            if len(r.new_code) > 400:
+                lines.append("... (truncated)")
+            lines.append("```")
+            lines.append("")
+
+        lines.extend([
+            "Consider these patterns. Retry your write now.",
+            "=" * 60,
+            ""
+        ])
+
+        return "\n".join(lines)
+
+    except Exception as e:
+        print(f"[AfterImage] Search error: {e}", file=sys.stderr)
         return None
 
-    # Search for similar code edits
-    search = HybridSearch()
 
-    # Search based on new content
-    results = search.search_by_code(
-        code=new_string,
-        file_path=file_path,
-        limit=3,
-        threshold=0.5
-    )
-
-    if not results:
-        return None
-
-    # Format injection
-    injector = ContextInjector()
-    injection = injector.format_for_hook(
-        results=results,
-        file_path=file_path,
-        tool_type="Edit"
-    )
-
-    return injection
-
-
-def post_write_hook(
-    file_path: str,
-    content: str,
-    context: Optional[str] = None
-) -> bool:
-    """
-    Post-write hook: Store the written code in KB.
-
-    Args:
-        file_path: Path to file that was written
-        content: Content that was written
-        context: Optional conversation context
-
-    Returns:
-        True if stored successfully
-    """
-    # Filter: only store code files
-    code_filter = CodeFilter()
-    if not code_filter.is_code(file_path, content):
+def store_code(file_path: str, new_code: str, old_code: Optional[str] = None):
+    """Store code in KB for future recall."""
+    if not AFTERIMAGE_AVAILABLE:
         return False
 
-    kb = KnowledgeBase()
-    session_id = get_session_id()
-
-    # Generate embedding (if available)
-    embedding = None
     try:
-        from afterimage.embeddings import EmbeddingGenerator
-        embedder = EmbeddingGenerator()
-        embedding = embedder.embed_code(content, file_path, context)
-    except ImportError:
-        pass  # Embeddings not available
-    except Exception:
-        pass  # Failed to generate embedding
+        code_filter = CodeFilter()
+        if not code_filter.is_code(file_path, new_code):
+            return False
 
-    # Store in KB
-    try:
+        kb = KnowledgeBase()
+        session_id = get_session_id()
+
+        # Try to generate embedding (optional)
+        embedding = None
+        try:
+            from afterimage.embeddings import EmbeddingGenerator
+            embedder = EmbeddingGenerator()
+            embedding = embedder.embed_code(new_code, file_path)
+        except:
+            pass
+
         kb.store(
             file_path=file_path,
-            new_code=content,
-            old_code=None,
-            context=context,
+            new_code=new_code,
+            old_code=old_code,
+            context="",
             session_id=session_id,
             embedding=embedding
         )
         return True
-    except Exception as e:
-        # Log error but don't block the write
-        print(f"AfterImage: Failed to store code: {e}", file=sys.stderr)
-        return False
-
-
-def post_edit_hook(
-    file_path: str,
-    old_string: str,
-    new_string: str,
-    context: Optional[str] = None
-) -> bool:
-    """
-    Post-edit hook: Store the code edit in KB.
-
-    Args:
-        file_path: Path to file that was edited
-        old_string: String that was replaced
-        new_string: Replacement string
-        context: Optional conversation context
-
-    Returns:
-        True if stored successfully
-    """
-    # Filter: only store code files
-    code_filter = CodeFilter()
-    if not code_filter.is_code(file_path, new_string):
-        return False
-
-    kb = KnowledgeBase()
-    session_id = get_session_id()
-
-    # Generate embedding
-    embedding = None
-    try:
-        from afterimage.embeddings import EmbeddingGenerator
-        embedder = EmbeddingGenerator()
-        embedding = embedder.embed_code(new_string, file_path, context)
-    except ImportError:
-        pass
-    except Exception:
-        pass
-
-    # Store in KB
-    try:
-        kb.store(
-            file_path=file_path,
-            new_code=new_string,
-            old_code=old_string,
-            context=context,
-            session_id=session_id,
-            embedding=embedding
-        )
-        return True
-    except Exception as e:
-        print(f"AfterImage: Failed to store edit: {e}", file=sys.stderr)
-        return False
-
-
-def handle_hook(hook_data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Main hook handler that processes Claude Code hook invocations.
-
-    Args:
-        hook_data: Dictionary with hook type, tool, and parameters
-
-    Returns:
-        Response dictionary with any injection content
-    """
-    hook_type = hook_data.get("type")  # "pre" or "post"
-    tool_name = hook_data.get("tool")  # "Write" or "Edit"
-    tool_input = hook_data.get("input", {})
-    context = hook_data.get("context")
-
-    response = {"success": True, "injection": None}
-
-    try:
-        if tool_name == "Write":
-            file_path = tool_input.get("file_path", "")
-            content = tool_input.get("content", "")
-
-            if hook_type == "pre":
-                injection = pre_write_hook(file_path, content, context)
-                if injection:
-                    response["injection"] = injection
-            elif hook_type == "post":
-                post_write_hook(file_path, content, context)
-
-        elif tool_name == "Edit":
-            file_path = tool_input.get("file_path", "")
-            old_string = tool_input.get("old_string", "")
-            new_string = tool_input.get("new_string", "")
-
-            if hook_type == "pre":
-                injection = pre_edit_hook(file_path, old_string, new_string, context)
-                if injection:
-                    response["injection"] = injection
-            elif hook_type == "post":
-                post_edit_hook(file_path, old_string, new_string, context)
 
     except Exception as e:
-        response["success"] = False
-        response["error"] = str(e)
-
-    return response
+        print(f"[AfterImage] Store error: {e}", file=sys.stderr)
+        return False
 
 
 def main():
-    """
-    CLI entry point for the hook script.
+    """Process Claude Code hook."""
+    try:
+        input_data = json.load(sys.stdin)
+    except json.JSONDecodeError:
+        sys.exit(0)
 
-    Claude Code invokes this script with JSON input on stdin.
-    """
-    parser = argparse.ArgumentParser(
-        description="AI-AfterImage hook for Claude Code"
-    )
-    parser.add_argument(
-        "--type", choices=["pre", "post"],
-        help="Hook type (pre or post tool execution)"
-    )
-    parser.add_argument(
-        "--tool", choices=["Write", "Edit"],
-        help="Tool being executed"
-    )
-    parser.add_argument(
-        "--input", help="Tool input as JSON"
-    )
-    parser.add_argument(
-        "--context", help="Conversation context"
-    )
-    parser.add_argument(
-        "--json", action="store_true",
-        help="Read full hook data from stdin as JSON"
-    )
+    hook_event = input_data.get("hook_event_name", "")
+    tool_name = input_data.get("tool_name", "")
+    tool_input = input_data.get("tool_input", {})
 
-    args = parser.parse_args()
+    # Only process Write and Edit
+    if tool_name not in ("Write", "Edit"):
+        sys.exit(0)
 
-    # Get hook data
-    if args.json:
-        # Read from stdin
-        hook_data = json.load(sys.stdin)
-    else:
-        # Build from arguments
-        tool_input = {}
-        if args.input:
-            tool_input = json.loads(args.input)
+    file_path = tool_input.get("file_path", "")
+    if not file_path:
+        sys.exit(0)
 
-        hook_data = {
-            "type": args.type,
-            "tool": args.tool,
-            "input": tool_input,
-            "context": args.context
-        }
+    # =========================================================================
+    # PRE-TOOL: Search for similar code and inject via DENY (first time only)
+    # =========================================================================
+    if hook_event == "PreToolUse":
+        content = tool_input.get("content", "") or tool_input.get("new_string", "")
 
-    # Handle the hook
-    response = handle_hook(hook_data)
+        if content and AFTERIMAGE_AVAILABLE:
+            content_hash = get_content_hash(file_path, content)
 
-    # Output response
-    print(json.dumps(response))
-    return 0 if response["success"] else 1
+            # First attempt: DENY with context (Claude sees this!)
+            if not was_already_shown(content_hash):
+                injection = search_similar_code(file_path, content)
+
+                if injection:
+                    mark_as_shown(content_hash)
+
+                    output = {
+                        "hookSpecificOutput": {
+                            "hookEventName": "PreToolUse",
+                            "permissionDecision": "deny",
+                            "permissionDecisionReason": injection
+                        }
+                    }
+                    print(json.dumps(output))
+                    sys.exit(0)
+
+            # Already shown or no results: allow the write
+            # (Claude will retry after seeing context)
+
+    # =========================================================================
+    # POST-TOOL: Store the code for future recall
+    # =========================================================================
+    elif hook_event == "PostToolUse":
+        if tool_name == "Write":
+            content = tool_input.get("content", "")
+            if content and store_code(file_path, content):
+                print(f"[AfterImage] Stored: {Path(file_path).name}", file=sys.stderr)
+
+        elif tool_name == "Edit":
+            old_string = tool_input.get("old_string", "")
+            new_string = tool_input.get("new_string", "")
+            if new_string and store_code(file_path, new_string, old_string):
+                print(f"[AfterImage] Stored: {Path(file_path).name}", file=sys.stderr)
+
+    sys.exit(0)
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()
