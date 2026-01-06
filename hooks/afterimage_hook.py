@@ -28,6 +28,7 @@ AFTERIMAGE_PATH = os.environ.get(
 # Try local install first, then fall back to common locations
 SEARCH_PATHS = [
     AFTERIMAGE_PATH,
+    str(Path.home() / "mini-mind-v2" / "workspace" / "AI-AfterImage"),  # Dev location
     str(Path.home() / ".local" / "lib" / "afterimage"),
     "/usr/local/lib/afterimage",
 ]
