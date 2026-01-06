@@ -1,0 +1,15 @@
+pyyaml>=6.0
+
+[all]
+ai-afterimage[dev,embeddings]
+
+[dev]
+pytest>=7.0
+pytest-cov>=4.0
+black>=23.0
+ruff>=0.1.0
+mypy>=1.0
+
+[embeddings]
+sentence-transformers>=2.2.0
+torch>=2.0.0

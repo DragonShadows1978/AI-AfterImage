@@ -1,8 +1,44 @@
+Metadata-Version: 2.4
+Name: ai-afterimage
+Version: 0.1.0
+Summary: Episodic memory for Claude Code - persistent memory of code written across sessions
+Author-email: DragonShadows1978 <noreply@afterimage.dev>
+License: MIT
+Project-URL: Homepage, https://github.com/DragonShadows1978/AI-AfterImage
+Project-URL: Repository, https://github.com/DragonShadows1978/AI-AfterImage
+Project-URL: Issues, https://github.com/DragonShadows1978/AI-AfterImage/issues
+Keywords: claude,claude-code,memory,embeddings,ai,coding-assistant,semantic-search
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Topic :: Software Development :: Libraries :: Python Modules
+Classifier: Topic :: Scientific/Engineering :: Artificial Intelligence
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: pyyaml>=6.0
+Provides-Extra: embeddings
+Requires-Dist: sentence-transformers>=2.2.0; extra == "embeddings"
+Requires-Dist: torch>=2.0.0; extra == "embeddings"
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0; extra == "dev"
+Requires-Dist: pytest-cov>=4.0; extra == "dev"
+Requires-Dist: black>=23.0; extra == "dev"
+Requires-Dist: ruff>=0.1.0; extra == "dev"
+Requires-Dist: mypy>=1.0; extra == "dev"
+Provides-Extra: all
+Requires-Dist: ai-afterimage[dev,embeddings]; extra == "all"
+Dynamic: license-file
+
 # AI-AfterImage
 
 [![Tests](https://github.com/DragonShadows1978/AI-AfterImage/actions/workflows/test.yml/badge.svg)](https://github.com/DragonShadows1978/AI-AfterImage/actions/workflows/test.yml)
 [![codecov](https://codecov.io/gh/DragonShadows1978/AI-AfterImage/graph/badge.svg)](https://codecov.io/gh/DragonShadows1978/AI-AfterImage)
-[![PyPI](https://img.shields.io/pypi/v/ai-afterimage)](https://pypi.org/project/ai-afterimage/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 

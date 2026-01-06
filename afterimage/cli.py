@@ -8,7 +8,7 @@ the knowledge base.
 import argparse
 import json
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -175,7 +175,7 @@ def cmd_export(args):
     entries = kb.export()
 
     output = {
-        "exported_at": datetime.utcnow().isoformat(),
+        "exported_at": datetime.now(timezone.utc).isoformat(),
         "count": len(entries),
         "entries": entries
     }
