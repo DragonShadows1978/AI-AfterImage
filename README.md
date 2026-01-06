@@ -1,5 +1,10 @@
 # AI-AfterImage
 
+[![Tests](https://github.com/DragonShadows1978/AI-AfterImage/actions/workflows/test.yml/badge.svg)](https://github.com/DragonShadows1978/AI-AfterImage/actions/workflows/test.yml)
+[![codecov](https://codecov.io/gh/DragonShadows1978/AI-AfterImage/graph/badge.svg)](https://codecov.io/gh/DragonShadows1978/AI-AfterImage)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 **Episodic memory for AI coding agents.**
 
 Like the visual phenomenon where an image persists after you look away - AfterImage gives Claude Code persistent memory of code it has written across sessions.
