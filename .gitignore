@@ -36,3 +36,4 @@ logs/
 .pytest_cache/
 .coverage
 htmlcov/
+launch.txt
