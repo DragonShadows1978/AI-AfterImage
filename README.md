@@ -47,19 +47,13 @@ context
    Store in KB
 ```
 
-## Two Layers
+## Features
 
-### Public Layer (Open Source)
-- Claude Code hook
-- Personal SQLite + embeddings KB
-- Individual developer memory
+- Claude Code hook (pre/post Write/Edit)
+- Local SQLite + embeddings KB
+- Personal developer memory
 - Session-to-session continuity
-
-### RDE Layer (Institutional)
-- Mission-aware context
-- Cross-mission learning
-- Pattern recognition across missions
-- Feeds into mission planning prompts
+- No cloud, no API calls - everything local
 
 ## Status
 
