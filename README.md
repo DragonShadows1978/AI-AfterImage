@@ -6,529 +6,104 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Episodic memory for AI coding agents.**
+**Give Claude Code memory of code it wrote in past sessions.**
 
-Like the visual phenomenon where an image persists after you look away - AfterImage gives Claude Code persistent memory of code it has written across sessions.
+Claude starts every session with amnesia. AfterImage fixes this by intercepting Write/Edit operations and showing Claude similar code it wrote before - using a clever deny-then-allow hook pattern that injects context directly into Claude's view.
 
-## The Problem
+## Quick Start (< 5 minutes)
 
-Claude Code starts every session with amnesia. Even though transcripts exist with every Write/Edit ever made, Claude can't remember:
-- What code it wrote yesterday
-- How it solved a similar problem last week
-- Patterns it has used before in this codebase
-
-Users re-explain context. Claude rewrites similar solutions. Institutional knowledge is lost.
-
-## The Solution
-
-A Claude Code hook that:
-
-1. **Pre-Write**: Searches KB for related past code before writing
-2. **Injects**: "You wrote this before..." with relevant examples
-3. **Post-Write**: Extracts and stores the diff for future recall
-
-```
-Write/Edit hook fires
-        |
-        v
-   Is this code?
-   (not .md/.json/etc)
-        |
-        v
-   Search KB for similar
-        |
-   +----+----+
-Found      Not Found
-   |           |
-   v           v
-Inject     Just write
-context
-   |           |
-   +-----+-----+
-         v
-   Claude writes
-         |
-         v
-   Extract diff
-   Store in KB
-```
-
-## Features
-
-- Claude Code hook (pre/post Write/Edit)
-- Local SQLite + embeddings KB
-- Hybrid search (keyword + semantic)
-- Personal developer memory
-- Session-to-session continuity
-- No cloud, no API calls - everything local
-- **Works offline** after initial model download
-- CLI for search and management
-
-## Installation
-
-### From Source
+### Step 1: Install
 
 ```bash
-# Clone the repository
-git clone https://github.com/DragonShadows1978/AI-AfterImage.git
-cd AI-AfterImage
-
-# Install base package
-pip install -e .
-
-# Install with embedding support (recommended)
-pip install -e ".[embeddings]"
+pip install ai-afterimage
 ```
 
-### Requirements
-
-- Python 3.10+
-- SQLite (built-in)
-- sentence-transformers (optional, for semantic search)
-
-## Quick Start
-
-### 1. Initialize Configuration
+### Step 2: Set Up Hook
 
 ```bash
-afterimage config --init
+afterimage setup
 ```
 
-This creates `~/.afterimage/config.yaml` with default settings.
+This automatically:
+- Creates `~/.afterimage/` configuration
+- Installs the hook to `~/.claude/hooks/`
+- Configures `~/.claude/settings.json`
+- Downloads the embedding model (~90MB)
 
-### 2. Install Claude Code Hook
+### Step 3: You're Done
 
-Copy the hook to your Claude Code hooks directory:
+Start Claude Code. AfterImage now works invisibly in the background:
+- Before writes: Shows similar past code (if found)
+- After writes: Stores the code for future recall
+
+## How It Actually Works
+
+The magic is in the **deny-then-allow pattern**:
+
+1. Claude tries to Write/Edit a file
+2. Hook searches knowledge base for similar past code
+3. If found: **DENY** with past code in the reason message
+4. Claude **sees** the deny reason (this is documented Claude Code behavior!)
+5. Claude retries the same write
+6. Hook recognizes retry (same content hash) → **ALLOW**
+7. File is written
+8. Post-hook stores the new code in KB
+
+This is the only way to inject context into Claude's view before a write. The deny reason IS the injection mechanism.
+
+## Verify It's Working
 
 ```bash
-mkdir -p ~/.claude/hooks
-cp hooks/afterimage_hook.py ~/.claude/hooks/
-chmod +x ~/.claude/hooks/afterimage_hook.py
+# Check KB stats
+afterimage stats
+
+# Search your code memory
+afterimage search "authentication"
+
+# See recent code stored
+afterimage recent
 ```
 
-Add the hook to your Claude Code settings (`~/.claude/settings.json`):
+## All Your Code Stays Local
 
-```json
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Write|Edit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/path/to/home/.claude/hooks/afterimage_hook.py"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Write|Edit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/path/to/home/.claude/hooks/afterimage_hook.py"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
+- SQLite database: `~/.afterimage/memory.db`
+- No cloud sync, no API calls
+- Works fully offline after setup
+- Your code never leaves your machine
 
-**Important**: Update the path to match your home directory (e.g., `/home/username/.claude/hooks/afterimage_hook.py`).
-
-Set the AfterImage path environment variable (or edit the hook to set the path):
-
-```bash
-export AFTERIMAGE_PATH="$HOME/AI-AfterImage"
-```
-
-### 3. Ingest Existing Transcripts (Optional)
-
-If you have existing Claude Code transcripts:
-
-```bash
-# Ingest all transcripts from default location
-afterimage ingest
-
-# Or from a specific directory
-afterimage ingest -d /path/to/transcripts
-
-# With verbose output
-afterimage ingest -v
-```
-
-### 4. Search Your Memory
-
-```bash
-# Search for code you've written before
-afterimage search "authentication middleware"
-
-# Filter by file path
-afterimage search "validate" --path validators
-
-# Output as JSON
-afterimage search "database connection" --json
-```
-
-## CLI Commands
+## CLI Reference
 
 | Command | Description |
 |---------|-------------|
-| `afterimage search <query>` | Search the knowledge base |
-| `afterimage ingest` | Ingest transcripts into KB |
+| `afterimage setup` | First-time setup |
+| `afterimage search <query>` | Search past code |
 | `afterimage stats` | Show KB statistics |
-| `afterimage recent` | Show recent entries |
-| `afterimage export` | Export KB to JSON |
-| `afterimage clear` | Clear the knowledge base |
-| `afterimage config` | Show/create configuration |
+| `afterimage recent` | Recent stored entries |
+| `afterimage ingest` | Import existing transcripts |
+| `afterimage config` | View/edit configuration |
+| `afterimage uninstall` | Clean removal |
 
-### Search Options
+## Requirements
 
-```bash
-afterimage search "query" [options]
+- Python 3.10+
+- Claude Code CLI
+- Linux or macOS (Windows support planned)
 
-Options:
-  -l, --limit N          Maximum results (default: 5)
-  -t, --threshold FLOAT  Minimum relevance (default: 0.3)
-  -p, --path PATTERN     Filter by file path
-  --json                 Output as JSON
-```
-
-### Ingest Options
+## Uninstall
 
 ```bash
-afterimage ingest [options]
-
-Options:
-  -f, --file PATH        Specific transcript file
-  -d, --directory PATH   Directory to search
-  --no-embeddings        Skip embedding generation
-  -v, --verbose          Verbose output
+afterimage uninstall          # Remove hook, keep data
+afterimage uninstall --purge  # Remove everything
 ```
-
-## Architecture
-
-```
-AI-AfterImage/
-+-- afterimage/
-|   +-- __init__.py
-|   +-- kb.py              # Knowledge base (SQLite + FTS5)
-|   +-- filter.py          # Code vs artifact filter
-|   +-- embeddings.py      # Embedding generation (sentence-transformers)
-|   +-- search.py          # Hybrid search (keyword + semantic)
-|   +-- inject.py          # Context injection formatting
-|   +-- extract.py         # Transcript parsing
-|   +-- cli.py             # Command line interface
-+-- hooks/
-|   +-- README.md          # Hook installation guide
-|   +-- afterimage_hook.py # Claude Code hook script
-+-- tests/
-|   +-- test_kb.py
-|   +-- test_filter.py
-|   +-- test_search.py
-|   +-- test_extract.py
-|   +-- test_inject.py
-|   +-- test_integration.py
-+-- pyproject.toml
-+-- setup.py
-+-- README.md
-+-- LICENSE
-```
-
-### Core Components
-
-#### Knowledge Base (`kb.py`)
-
-SQLite database with FTS5 full-text search:
-
-- **Table**: `code_memory`
-  - `id`: Unique identifier
-  - `file_path`: Where the code was written
-  - `old_code`: Previous content (for Edit) or NULL (for Write)
-  - `new_code`: The code that was written
-  - `context`: Conversation context (why it was written)
-  - `timestamp`: When it was written
-  - `session_id`: Which Claude Code session
-  - `embedding`: Vector embedding (BLOB)
-
-- **Location**: `~/.afterimage/memory.db`
-
-#### Code Filter (`filter.py`)
-
-Determines if a file is "code" vs artifacts:
-
-- **Code extensions**: .py, .js, .ts, .jsx, .tsx, .rs, .go, .java, .c, .cpp, etc.
-- **Skip extensions**: .md, .json, .yaml, .txt, .log, .env
-- **Skip paths**: artifacts/, docs/, research/, node_modules/
-- **Content heuristics**: Fallback for unknown extensions
-
-#### Embedding System (`embeddings.py`)
-
-Local embeddings using sentence-transformers:
-
-- **Model**: all-MiniLM-L6-v2 (90MB)
-- **Runs locally**: No API calls
-- **CUDA support**: Uses GPU if available
-- **Cached**: Embeddings cached in KB for fast retrieval
-
-#### Hybrid Search (`search.py`)
-
-Combines keyword and semantic search:
-
-```
-relevance = (fts_weight * fts_score) + (semantic_weight * semantic_score)
-```
-
-- **FTS5**: SQLite full-text search with BM25 scoring
-- **Semantic**: Cosine similarity between embeddings
-- **Default weights**: FTS 40%, Semantic 60%
-
-#### Context Injection (`inject.py`)
-
-Formats search results for Claude:
-
-```
-You have written similar code before (3 matches):
-
-### Match 1 (src/validators.py)
-
-```python
-def validate_email(email):
-    return '@' in email
-```
-
-**Context:** Added email validation for user signup
-
-*Relevance: 85%*
-```
-
-### Hook System
-
-The Claude Code hook integrates AfterImage into your workflow using a **deny-then-allow pattern** that ensures Claude actually sees relevant past code before writing.
-
-#### How It Works
-
-```
-Claude attempts Write/Edit
-        |
-        v
-   AfterImage hook fires
-        |
-        v
-   Search KB for similar code
-        |
-   +----+----+
-Found      Not Found
-   |           |
-   v           v
- DENY       Allow
- + show     (write
- context    proceeds)
-   |
-   v
-Claude SEES the past code
-(deny reason shown to Claude!)
-   |
-   v
-Claude retries Write
-        |
-        v
-   Hook recognizes retry
-   (same content hash)
-        |
-        v
-      ALLOW
-        |
-        v
-   File created
-        |
-        v
-   Post-hook stores
-   code in KB
-```
-
-#### Pre-Write Hook (Deny-Then-Allow)
-
-The key insight: Claude Code's hook system shows `permissionDecisionReason` to Claude when a hook returns `deny`. We use this to inject context:
-
-1. **First attempt**: Hook searches KB, finds similar code
-2. **DENY** with reason containing the code examples
-3. Claude **sees** the past code (it's in the deny message!)
-4. Claude **retries** the write (automatically or adjusted)
-5. **Second attempt**: Hook recognizes the same content hash, **allows** it
-
-This ensures Claude has seen relevant patterns before the file is actually written.
-
-#### Post-Write Hook
-
-After Claude successfully writes code:
-1. Check if file is code (not markdown, JSON, etc.)
-2. Generate embedding (optional, for semantic search)
-3. Store in KB with session context
-
-## Configuration
-
-`~/.afterimage/config.yaml`:
-
-```yaml
-# Search settings
-search:
-  max_results: 5
-  relevance_threshold: 0.6
-  max_injection_tokens: 2000
-
-# Filter settings
-filter:
-  code_extensions:
-    - .py
-    - .js
-    - .ts
-    - .jsx
-    - .tsx
-    - .rs
-    - .go
-    - .java
-    - .c
-    - .cpp
-    - .h
-    - .rb
-    - .php
-    - .swift
-    - .kt
-  skip_extensions:
-    - .md
-    - .json
-    - .yaml
-    - .yml
-    - .txt
-    - .log
-    - .env
-  skip_paths:
-    - artifacts/
-    - docs/
-    - research/
-    - test_data/
-    - __pycache__/
-    - node_modules/
-
-# Embedding model
-embeddings:
-  model: all-MiniLM-L6-v2
-  device: cpu  # or cuda
-```
-
-## Offline Mode
-
-AfterImage is designed to work **completely offline** after the initial setup. This ensures your code memory is always accessible, even without internet.
-
-### Initial Setup (Requires Network)
-
-On first use with embeddings enabled, the sentence-transformers model (~90MB) is downloaded and cached:
-
-```bash
-# First use downloads the model to ~/.afterimage/models/
-afterimage search "test"  # Downloads all-MiniLM-L6-v2
-```
-
-### Fully Offline After Setup
-
-After the model is cached, all operations work offline:
-
-- **SQLite database** - Local file storage, no network
-- **FTS5 search** - Built into SQLite, no network
-- **Embeddings** - Model loaded from local cache
-- **Configuration** - Local YAML files only
-
-### What's Cached
-
-| Component | Location | Size |
-|-----------|----------|------|
-| Knowledge Base | `~/.afterimage/memory.db` | Varies |
-| Embedding Model | `~/.afterimage/models/` | ~90MB |
-| Configuration | `~/.afterimage/config.yaml` | <1KB |
-
-### Verifying Offline Readiness
-
-```bash
-# Check if model is cached
-ls ~/.afterimage/models/models--sentence-transformers--all-MiniLM-L6-v2
-
-# Test offline search (disconnect network first to verify)
-afterimage search "function"
-```
-
-## Performance
-
-| Operation | Target | Typical |
-|-----------|--------|---------|
-| Model load | <5s | 2-3s |
-| Embedding generation | <50ms | 20-30ms |
-| Hybrid search | <100ms | 30-50ms |
-| FTS search only | <10ms | 2-5ms |
-
-## Development
-
-### Running Tests
-
-```bash
-# Install dev dependencies
-pip install -e ".[dev]"
-
-# Run all tests
-pytest
-
-# Run with coverage
-pytest --cov=afterimage
-
-# Run specific test file
-pytest tests/test_inject.py
-
-# Run slow tests (with embeddings)
-pytest -m slow
-```
-
-### Test Coverage
-
-The test suite covers:
-- Knowledge Base operations
-- Code filtering logic
-- Transcript extraction
-- Search functionality
-- Context injection formatting
-- End-to-end integration
-- Hook script handling
 
 ## License
 
-MIT License - See [LICENSE](LICENSE) for details.
+MIT License - Do whatever you want with it.
 
-## Status
+## Support
 
-**Working implementation** - Core functionality complete:
-- [x] Knowledge Base with FTS5
-- [x] Code filtering
-- [x] Transcript extraction
-- [x] Embedding generation
-- [x] Hybrid search
-- [x] Context injection
-- [x] CLI commands
-- [x] Claude Code hooks
-- [x] Test suite (163 tests, 88% coverage)
-- [x] Offline mode (works without network after model download)
+If AfterImage saves you time, consider starring the repo - it helps others find it.
 
-## Contributing
+---
 
-Contributions welcome! Please:
-1. Fork the repository
-2. Create a feature branch
-3. Add tests for new functionality
-4. Submit a pull request
-
-## Name
-
-**AI** = **A**fter **I**mage
-
-The ghost of what was written, persisting across sessions.
+**The ghost of what was written, persisting across sessions.**

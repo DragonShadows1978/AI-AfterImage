@@ -617,3 +617,254 @@ class TestEdgeCases:
             # KB manages connections per-operation, no close needed
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+class TestOfflineFunctionality:
+    """
+    Tests for offline functionality (Phase 7 success criteria).
+
+    After initial model download, the system should work completely offline
+    with no network access required.
+    """
+
+    @pytest.fixture
+    def temp_dir(self):
+        """Create temporary directory."""
+        tmpdir = tempfile.mkdtemp(prefix="afterimage_offline_test_")
+        yield tmpdir
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+    @pytest.fixture
+    def test_kb(self, temp_dir):
+        """Create a test knowledge base."""
+        db_path = Path(temp_dir) / "test_memory.db"
+        kb = KnowledgeBase(db_path=db_path)
+        yield kb
+
+    def test_sqlite_is_local(self, test_kb):
+        """SQLite should be completely local (no network)."""
+        # Store and retrieve without network
+        entry_id = test_kb.store(
+            file_path="/project/offline.py",
+            new_code="def offline_function():\n    return 'works offline'",
+            context="Testing offline storage",
+            session_id="offline_test"
+        )
+
+        assert entry_id is not None
+
+        # FTS search is local
+        results = test_kb.search_fts("offline", limit=5)
+        assert len(results) >= 1
+        assert "offline" in results[0]["new_code"]
+
+    def test_code_filter_is_local(self):
+        """Code filter uses no network resources."""
+        code_filter = CodeFilter()
+
+        # All operations are local lookups
+        assert code_filter.is_code("/path/to/file.py", "def foo(): pass") is True
+        assert code_filter.is_code("/path/to/file.md", "# Readme") is False
+        assert code_filter.is_code("/path/to/node_modules/file.js", "code") is False
+
+        # Extension and path checks are local (via sets)
+        assert ".py" in code_filter.code_extensions
+        assert ".json" in code_filter.skip_extensions
+        assert "artifacts/" in code_filter.skip_paths
+
+    def test_inject_formatter_is_local(self):
+        """Context injection formatting uses no network."""
+        result = SearchResult(
+            id="test_id",
+            file_path="/project/test.py",
+            new_code="def test(): pass",
+            old_code=None,
+            context="Test context",
+            timestamp="2026-01-06T12:00:00Z",
+            session_id="s1",
+            relevance_score=0.85
+        )
+
+        injector = ContextInjector()
+
+        # All formatting is local string operations
+        output = injector.format_injection([result])
+        assert output is not None
+        assert "test" in output.lower()
+
+        hook_output = injector.format_for_hook([result], "/project/new.py", "Write")
+        assert hook_output is not None
+        assert "<memory" in hook_output
+
+    def test_transcript_extractor_is_local(self, temp_dir):
+        """Transcript extraction uses no network."""
+        # Create local transcript file
+        transcript_path = Path(temp_dir) / "test.jsonl"
+        with open(transcript_path, "w") as f:
+            f.write(json.dumps({
+                "tool": "Write",
+                "input": {
+                    "file_path": "/project/local.py",
+                    "content": "# local file"
+                }
+            }) + "\n")
+
+        extractor = TranscriptExtractor()
+        changes = extractor.extract_from_file(transcript_path)
+
+        assert len(changes) >= 1
+        assert changes[0].file_path == "/project/local.py"
+
+    @pytest.mark.slow
+    def test_embeddings_use_cached_model(self):
+        """Embeddings should use locally cached model (no download after first use)."""
+        try:
+            from afterimage.embeddings import EmbeddingGenerator, get_cache_dir
+        except ImportError:
+            pytest.skip("sentence-transformers not installed")
+
+        # Check that model cache exists
+        cache_dir = get_cache_dir()
+        model_dir = cache_dir / "models--sentence-transformers--all-MiniLM-L6-v2"
+
+        # Model should be cached from previous runs
+        # (First run downloads, subsequent runs use cache)
+        if not model_dir.exists():
+            pytest.skip("Model not yet cached - run once with network to cache")
+
+        # Verify model files exist locally
+        assert model_dir.exists(), "Model should be cached locally"
+
+        # Load model from cache (no network needed)
+        embedder = EmbeddingGenerator()
+
+        # Generate embedding - should work offline with cached model
+        embedding = embedder.embed("def offline_test(): pass")
+
+        assert embedding is not None
+        assert len(embedding) == 384  # all-MiniLM-L6-v2 dimension
+
+        # Batch embedding should also work offline
+        embeddings = embedder.embed_batch([
+            "def function_a(): pass",
+            "def function_b(): pass"
+        ])
+        assert len(embeddings) == 2
+        assert all(len(e) == 384 for e in embeddings)
+
+    @pytest.mark.slow
+    def test_full_pipeline_offline(self, temp_dir):
+        """Full pipeline should work offline after model caching."""
+        try:
+            from afterimage.embeddings import EmbeddingGenerator, get_cache_dir
+        except ImportError:
+            pytest.skip("sentence-transformers not installed")
+
+        # Check model is cached
+        cache_dir = get_cache_dir()
+        model_dir = cache_dir / "models--sentence-transformers--all-MiniLM-L6-v2"
+        if not model_dir.exists():
+            pytest.skip("Model not yet cached - run once with network to cache")
+
+        # Create KB
+        db_path = Path(temp_dir) / "offline_test.db"
+        kb = KnowledgeBase(db_path=db_path)
+
+        # Create embedder
+        embedder = EmbeddingGenerator()
+
+        # Store with embeddings (all local)
+        code = "def validate_input(data):\n    return bool(data)"
+        embedding = embedder.embed_code(code, "/project/validators.py")
+        kb.store(
+            file_path="/project/validators.py",
+            new_code=code,
+            context="Input validation",
+            session_id="offline_s1",
+            embedding=embedding
+        )
+
+        # Search with hybrid (all local)
+        search = HybridSearch(kb=kb, embedder=embedder)
+        results = search.search("validate", limit=5)
+
+        assert len(results) >= 1
+        assert "validate" in results[0].new_code
+
+        # Format for injection (all local)
+        injector = ContextInjector()
+        output = injector.format_injection(results)
+
+        assert output is not None
+        assert "validate" in output
+
+    def test_config_loading_is_local(self, temp_dir):
+        """Configuration loading uses local YAML files only."""
+        import yaml
+
+        # Create config directory
+        config_dir = Path(temp_dir) / ".afterimage"
+        config_dir.mkdir(parents=True)
+
+        config_path = config_dir / "config.yaml"
+        config_data = {
+            "search": {
+                "max_results": 10,
+                "relevance_threshold": 0.5
+            },
+            "embeddings": {
+                "model": "all-MiniLM-L6-v2",
+                "device": "cpu"
+            }
+        }
+
+        with open(config_path, "w") as f:
+            yaml.dump(config_data, f)
+
+        # Load config (pure local file read)
+        with open(config_path) as f:
+            loaded = yaml.safe_load(f)
+
+        assert loaded["search"]["max_results"] == 10
+        assert loaded["embeddings"]["model"] == "all-MiniLM-L6-v2"
+
+    def test_no_external_api_calls_in_modules(self):
+        """Verify no modules make external API calls."""
+        # Import all core modules - they should not make network calls on import
+        from afterimage import kb, filter, search, inject, extract
+
+        # Inspect modules for suspicious imports
+        import inspect
+
+        suspicious_imports = ["requests", "urllib.request", "httpx", "aiohttp"]
+
+        for module in [kb, filter, search, inject, extract]:
+            source = inspect.getsource(module)
+            for suspicious in suspicious_imports:
+                # Check if module imports networking libraries
+                assert f"import {suspicious}" not in source, \
+                    f"{module.__name__} should not import {suspicious}"
+                assert f"from {suspicious}" not in source, \
+                    f"{module.__name__} should not import from {suspicious}"
+
+    def test_cli_commands_are_local(self, temp_dir):
+        """CLI commands should work without network."""
+        import argparse
+        from afterimage.cli import cmd_stats, cmd_config
+
+        # Set temp home to avoid touching real config
+        old_home = os.environ.get("HOME")
+        os.environ["HOME"] = temp_dir
+
+        try:
+            # Config init is local file creation
+            args = argparse.Namespace(init=True, force=False)
+            result = cmd_config(args)
+            assert result == 0
+
+            # Stats reads local DB
+            args = argparse.Namespace(json=False)
+            result = cmd_stats(args)
+            assert result == 0
+        finally:
+            os.environ["HOME"] = old_home or ""

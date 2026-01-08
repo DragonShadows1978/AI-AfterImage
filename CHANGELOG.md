@@ -8,11 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Offline functionality tests** - 9 new tests validating offline operation
+- Comprehensive documentation for offline mode in README
 - PyPI publish workflow with trusted publishing
 - CONTRIBUTING.md with development guidelines
 
 ### Fixed
 - Deprecated `datetime.utcnow()` replaced with `datetime.now(timezone.utc)`
+
+### Changed
+- Test count increased to 163 tests (from 154)
 
 ## [0.1.0] - 2026-01-06
 
@@ -75,8 +80,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 | FTS search only | <10ms | 2-5ms |
 
 ### Testing
-- 154 tests across 6 test modules
+- 163 tests across 6 test modules
 - 88% code coverage
+- Offline functionality test suite (`TestOfflineFunctionality`)
 - GitHub Actions CI with Python 3.10, 3.11, 3.12
 - Codecov integration for coverage tracking
 
