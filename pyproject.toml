@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ai-afterimage"
-version = "0.1.0"
+version = "0.2.0"
 description = "Episodic memory for Claude Code - persistent memory of code written across sessions"
 readme = "README.md"
 license = {text = "MIT"}
@@ -18,10 +18,12 @@ keywords = [
     "embeddings",
     "ai",
     "coding-assistant",
-    "semantic-search"
+    "semantic-search",
+    "postgresql",
+    "pgvector"
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
@@ -31,6 +33,7 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Database",
 ]
 requires-python = ">=3.10"
 dependencies = [
@@ -42,15 +45,23 @@ embeddings = [
     "sentence-transformers>=2.2.0",
     "torch>=2.0.0",
 ]
+postgresql = [
+    "asyncpg>=0.29.0",
+    "psycopg[binary]>=3.1.0",
+    "pgvector>=0.2.5",
+    "numpy>=1.24.0",
+    "nest-asyncio>=1.5.0",
+]
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
+    "pytest-asyncio>=0.21.0",
     "black>=23.0",
     "ruff>=0.1.0",
     "mypy>=1.0",
 ]
 all = [
-    "ai-afterimage[embeddings,dev]",
+    "ai-afterimage[embeddings,postgresql,dev]",
 ]
 
 [project.scripts]
@@ -63,11 +74,10 @@ Issues = "https://github.com/DragonShadows1978/AI-AfterImage/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["afterimage*", "hooks*"]
+include = ["afterimage*"]
 
 [tool.setuptools.package-data]
 afterimage = ["py.typed"]
-hooks = ["*.py", "*.md"]
 
 [tool.black]
 line-length = 88
@@ -100,9 +110,11 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
+asyncio_mode = "auto"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests as integration tests",
+    "postgresql: marks tests requiring PostgreSQL",
 ]
 
 [tool.coverage.run]

@@ -1,15 +1,14 @@
 """
-Search System: Hybrid search combining FTS5 and vector similarity.
+Search System: Hybrid search combining FTS and vector similarity.
 
-Provides ranked results using both keyword matching and semantic similarity.
+Updated to use the storage backend abstraction for both SQLite and PostgreSQL.
 """
 
 from typing import List, Dict, Any, Optional, Tuple
-from dataclasses import dataclass, field
-from pathlib import Path
+from dataclasses import dataclass
 
-from .kb import KnowledgeBase
-from .embeddings import EmbeddingGenerator, cosine_similarity
+from .storage import StorageBackend, StorageEntry
+from .config import load_config, get_storage_backend
 
 
 @dataclass
@@ -43,23 +42,39 @@ class SearchResult:
             "semantic_score": self.semantic_score,
         }
 
+    @classmethod
+    def from_entry(cls, entry: StorageEntry) -> "SearchResult":
+        """Create SearchResult from StorageEntry."""
+        return cls(
+            id=entry.id,
+            file_path=entry.file_path,
+            new_code=entry.new_code,
+            old_code=entry.old_code,
+            context=entry.context,
+            timestamp=entry.timestamp,
+            session_id=entry.session_id,
+            fts_score=entry.fts_rank or 0.0,
+            semantic_score=entry.semantic_score or 0.0,
+        )
+
 
 class HybridSearch:
     """
-    Hybrid search combining FTS5 full-text search and vector similarity.
+    Hybrid search combining FTS full-text search and vector similarity.
+
+    Works with both SQLite and PostgreSQL backends via the StorageBackend
+    abstraction. Each backend handles search differently:
+    - SQLite: FTS5 with BM25, in-memory cosine similarity
+    - PostgreSQL: tsvector with GIN index, pgvector HNSW index
 
     Scoring formula:
         relevance = (fts_weight * fts_score) + (semantic_weight * semantic_score)
-
-    Where:
-        - fts_score: Normalized BM25 score from SQLite FTS5
-        - semantic_score: Cosine similarity from embeddings
     """
 
     def __init__(
         self,
-        kb: Optional[KnowledgeBase] = None,
-        embedder: Optional[EmbeddingGenerator] = None,
+        backend: Optional[StorageBackend] = None,
+        embedder=None,
         fts_weight: float = 0.4,
         semantic_weight: float = 0.6
     ):
@@ -67,20 +82,28 @@ class HybridSearch:
         Initialize hybrid search.
 
         Args:
-            kb: Knowledge base to search (creates new if None)
+            backend: Storage backend (loads from config if None)
             embedder: Embedding generator (creates new if None)
-            fts_weight: Weight for FTS5 scores (0-1)
+            fts_weight: Weight for FTS scores (0-1)
             semantic_weight: Weight for semantic scores (0-1)
         """
-        self.kb = kb or KnowledgeBase()
+        self._backend = backend
         self._embedder = embedder
         self.fts_weight = fts_weight
         self.semantic_weight = semantic_weight
 
     @property
-    def embedder(self) -> EmbeddingGenerator:
+    def backend(self) -> StorageBackend:
+        """Lazy load backend."""
+        if self._backend is None:
+            self._backend = get_storage_backend()
+        return self._backend
+
+    @property
+    def embedder(self):
         """Lazy load embedder."""
         if self._embedder is None:
+            from .embeddings import EmbeddingGenerator
             self._embedder = EmbeddingGenerator()
         return self._embedder
 
@@ -93,7 +116,7 @@ class HybridSearch:
         include_fts_only: bool = True
     ) -> List[SearchResult]:
         """
-        Perform hybrid search combining FTS5 and vector similarity.
+        Perform hybrid search combining FTS and vector similarity.
 
         Args:
             query: Search query (natural language or code pattern)
@@ -107,27 +130,25 @@ class HybridSearch:
         """
         results_map: Dict[str, SearchResult] = {}
 
-        # 1. FTS5 search
+        # 1. FTS search
         fts_results = self._search_fts(query, limit * 2, path_filter)
-        for entry, score in fts_results:
-            result = self._entry_to_result(entry)
-            result.fts_score = score
-            results_map[entry["id"]] = result
+        for entry in fts_results:
+            result = SearchResult.from_entry(entry)
+            result.fts_score = self._normalize_fts_score(entry.fts_rank)
+            results_map[entry.id] = result
 
         # 2. Semantic search
         semantic_results = self._search_semantic(query, limit * 2, path_filter)
         for entry, score in semantic_results:
-            if entry["id"] in results_map:
-                # Combine scores
-                results_map[entry["id"]].semantic_score = score
+            if entry.id in results_map:
+                results_map[entry.id].semantic_score = score
             else:
-                result = self._entry_to_result(entry)
+                result = SearchResult.from_entry(entry)
                 result.semantic_score = score
-                results_map[entry["id"]] = result
+                results_map[entry.id] = result
 
         # 3. Calculate combined scores
         for result in results_map.values():
-            # Normalize and combine
             fts_normalized = min(result.fts_score, 1.0) if result.fts_score > 0 else 0
             result.relevance_score = (
                 self.fts_weight * fts_normalized +
@@ -154,9 +175,6 @@ class HybridSearch:
         """
         Search for similar code snippets.
 
-        Optimized for finding code that is functionally similar
-        to the provided snippet.
-
         Args:
             code: Code snippet to find matches for
             file_path: Optional file path for context
@@ -167,26 +185,22 @@ class HybridSearch:
             List of similar code snippets
         """
         # Generate embedding for the code
-        from .embeddings import cached_embed
         query_embedding = self.embedder.embed_code(code, file_path)
 
-        # Get all entries with embeddings
-        entries = self.kb.get_all_with_embeddings()
+        # Semantic search
+        results = self.backend.search_semantic(query_embedding, limit * 2)
 
-        # Calculate similarities
-        results = []
-        for entry in entries:
-            if entry.get("embedding"):
-                similarity = cosine_similarity(query_embedding, entry["embedding"])
-                if similarity >= threshold:
-                    result = self._entry_to_result(entry)
-                    result.semantic_score = similarity
-                    result.relevance_score = similarity
-                    results.append(result)
+        # Filter and convert
+        search_results = []
+        for entry, similarity in results:
+            if similarity >= threshold:
+                result = SearchResult.from_entry(entry)
+                result.semantic_score = similarity
+                result.relevance_score = similarity
+                search_results.append(result)
 
-        # Sort by similarity
-        results.sort(key=lambda r: r.relevance_score, reverse=True)
-        return results[:limit]
+        search_results.sort(key=lambda r: r.relevance_score, reverse=True)
+        return search_results[:limit]
 
     def search_by_path(
         self,
@@ -203,113 +217,54 @@ class HybridSearch:
         Returns:
             List of matching entries
         """
-        entries = self.kb.search_by_path(path_pattern, limit)
-        return [self._entry_to_result(e) for e in entries]
+        entries = self.backend.search_by_path(path_pattern, limit)
+        return [SearchResult.from_entry(e) for e in entries]
 
     def _search_fts(
         self,
         query: str,
         limit: int,
         path_filter: Optional[str] = None
-    ) -> List[Tuple[Dict[str, Any], float]]:
-        """Perform FTS5 search and return normalized scores."""
-        # Escape special FTS5 characters
-        safe_query = self._escape_fts_query(query)
+    ) -> List[StorageEntry]:
+        """Perform FTS search."""
+        results = self.backend.search_fts(query, limit)
 
-        try:
-            results = self.kb.search_fts(safe_query, limit)
-        except Exception:
-            # FTS query failed - try simpler query
-            words = query.split()
-            if words:
-                safe_query = " OR ".join(f'"{w}"' for w in words[:5])
-                try:
-                    results = self.kb.search_fts(safe_query, limit)
-                except Exception:
-                    return []
-            else:
-                return []
-
-        # Apply path filter if specified
         if path_filter:
-            results = [r for r in results if path_filter in r.get("file_path", "")]
+            results = [r for r in results if path_filter in r.file_path]
 
-        # Normalize BM25 scores (they are negative, closer to 0 is better)
-        if not results:
-            return []
-
-        # BM25 scores are negative; convert to 0-1 range
-        scores = [abs(r.get("fts_rank", 0)) for r in results]
-        max_score = max(scores) if scores else 1
-
-        normalized = []
-        for r, score in zip(results, scores):
-            # Invert and normalize: higher is better
-            norm_score = 1 - (score / (max_score + 1)) if max_score > 0 else 0.5
-            normalized.append((r, norm_score))
-
-        return normalized
+        return results
 
     def _search_semantic(
         self,
         query: str,
         limit: int,
         path_filter: Optional[str] = None
-    ) -> List[Tuple[Dict[str, Any], float]]:
-        """Perform semantic search using embeddings."""
-        # Generate query embedding
+    ) -> List[Tuple[StorageEntry, float]]:
+        """Perform semantic search."""
         try:
             query_embedding = self.embedder.embed(query)
         except Exception:
-            # Embeddings not available
             return []
 
-        # Get all entries with embeddings
-        entries = self.kb.get_all_with_embeddings()
+        results = self.backend.search_semantic(query_embedding, limit)
 
-        # Apply path filter
         if path_filter:
-            entries = [e for e in entries if path_filter in e.get("file_path", "")]
+            results = [(e, s) for e, s in results if path_filter in e.file_path]
 
-        # Calculate similarities
-        results = []
-        for entry in entries:
-            if entry.get("embedding"):
-                similarity = cosine_similarity(query_embedding, entry["embedding"])
-                results.append((entry, similarity))
+        return results
 
-        # Sort by similarity
-        results.sort(key=lambda x: x[1], reverse=True)
-        return results[:limit]
-
-    def _escape_fts_query(self, query: str) -> str:
-        """Escape special characters for FTS5 query."""
-        # Remove or escape FTS5 special characters
-        special_chars = ['"', "'", "(", ")", "*", ":", "-", "^"]
-        escaped = query
-        for char in special_chars:
-            escaped = escaped.replace(char, " ")
-
-        # Clean up whitespace
-        escaped = " ".join(escaped.split())
-
-        # If query is empty after escaping, return a catch-all
-        if not escaped.strip():
-            return "*"
-
-        return escaped
-
-    def _entry_to_result(self, entry: Dict[str, Any]) -> SearchResult:
-        """Convert a KB entry to a SearchResult."""
-        return SearchResult(
-            id=entry["id"],
-            file_path=entry["file_path"],
-            new_code=entry["new_code"],
-            old_code=entry.get("old_code"),
-            context=entry.get("context"),
-            timestamp=entry["timestamp"],
-            session_id=entry.get("session_id"),
-        )
+    def _normalize_fts_score(self, score: Optional[float]) -> float:
+        """Normalize FTS score to 0-1 range."""
+        if score is None:
+            return 0.0
+        # SQLite BM25 returns negative values (closer to 0 is better)
+        # PostgreSQL ts_rank returns positive values
+        if score < 0:
+            # SQLite: Convert negative to positive, normalize
+            return min(1.0, 1.0 / (1.0 + abs(score)))
+        else:
+            # PostgreSQL: Already positive, cap at 1
+            return min(1.0, score)
 
 
 def quick_search(query: str, limit: int = 5) -> List[SearchResult]:
