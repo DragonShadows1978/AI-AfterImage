@@ -63,7 +63,7 @@ context
 - No cloud, no API calls - everything local
 - **Works offline** after initial model download
 - CLI for search and management
-- **v0.2.0**: Optional PostgreSQL backend with pgvector
+- **v0.2.1**: Optional PostgreSQL backend with pgvector
 
 ## Quick Start
 
