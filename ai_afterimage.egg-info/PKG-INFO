@@ -1,14 +1,14 @@
 Metadata-Version: 2.4
 Name: ai-afterimage
-Version: 0.1.0
+Version: 0.2.1
 Summary: Episodic memory for Claude Code - persistent memory of code written across sessions
 Author-email: DragonShadows1978 <noreply@afterimage.dev>
 License: MIT
 Project-URL: Homepage, https://github.com/DragonShadows1978/AI-AfterImage
 Project-URL: Repository, https://github.com/DragonShadows1978/AI-AfterImage
 Project-URL: Issues, https://github.com/DragonShadows1978/AI-AfterImage/issues
-Keywords: claude,claude-code,memory,embeddings,ai,coding-assistant,semantic-search
-Classifier: Development Status :: 3 - Alpha
+Keywords: claude,claude-code,memory,embeddings,ai,coding-assistant,semantic-search,postgresql,pgvector
+Classifier: Development Status :: 4 - Beta
 Classifier: Intended Audience :: Developers
 Classifier: License :: OSI Approved :: MIT License
 Classifier: Operating System :: OS Independent
@@ -18,6 +18,7 @@ Classifier: Programming Language :: Python :: 3.11
 Classifier: Programming Language :: Python :: 3.12
 Classifier: Topic :: Software Development :: Libraries :: Python Modules
 Classifier: Topic :: Scientific/Engineering :: Artificial Intelligence
+Classifier: Topic :: Database
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
 License-File: LICENSE
@@ -25,20 +26,28 @@ Requires-Dist: pyyaml>=6.0
 Provides-Extra: embeddings
 Requires-Dist: sentence-transformers>=2.2.0; extra == "embeddings"
 Requires-Dist: torch>=2.0.0; extra == "embeddings"
+Provides-Extra: postgresql
+Requires-Dist: asyncpg>=0.29.0; extra == "postgresql"
+Requires-Dist: psycopg[binary]>=3.1.0; extra == "postgresql"
+Requires-Dist: pgvector>=0.2.5; extra == "postgresql"
+Requires-Dist: numpy>=1.24.0; extra == "postgresql"
+Requires-Dist: nest-asyncio>=1.5.0; extra == "postgresql"
 Provides-Extra: dev
 Requires-Dist: pytest>=7.0; extra == "dev"
 Requires-Dist: pytest-cov>=4.0; extra == "dev"
+Requires-Dist: pytest-asyncio>=0.21.0; extra == "dev"
 Requires-Dist: black>=23.0; extra == "dev"
 Requires-Dist: ruff>=0.1.0; extra == "dev"
 Requires-Dist: mypy>=1.0; extra == "dev"
 Provides-Extra: all
-Requires-Dist: ai-afterimage[dev,embeddings]; extra == "all"
+Requires-Dist: ai-afterimage[dev,embeddings,postgresql]; extra == "all"
 Dynamic: license-file
 
 # AI-AfterImage
 
 [![Tests](https://github.com/DragonShadows1978/AI-AfterImage/actions/workflows/test.yml/badge.svg)](https://github.com/DragonShadows1978/AI-AfterImage/actions/workflows/test.yml)
 [![codecov](https://codecov.io/gh/DragonShadows1978/AI-AfterImage/graph/badge.svg)](https://codecov.io/gh/DragonShadows1978/AI-AfterImage)
+[![PyPI](https://img.shields.io/pypi/v/ai-afterimage)](https://pypi.org/project/ai-afterimage/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -97,62 +106,75 @@ context
 - Personal developer memory
 - Session-to-session continuity
 - No cloud, no API calls - everything local
+- **Works offline** after initial model download
 - CLI for search and management
+- **v0.2.0**: Optional PostgreSQL backend with pgvector
 
-## Installation
+## Quick Start
 
-### From Source
+### Step 1: Install
 
 ```bash
-# Clone the repository
-git clone https://github.com/DragonShadows1978/AI-AfterImage.git
-cd AI-AfterImage
+pip install ai-afterimage
+```
 
-# Install base package
-pip install -e .
+### Step 2: Setup
 
-# Install with embedding support (recommended)
-pip install -e ".[embeddings]"
+```bash
+afterimage setup
+```
+
+This automatically:
+- Creates `~/.afterimage/` configuration
+- Installs the hook to `~/.claude/hooks/`
+- Configures `~/.claude/settings.json`
+- Downloads the embedding model (~90MB)
+
+### Step 3: Done
+
+Start Claude Code. AfterImage now works invisibly in the background:
+- Before writes: Shows similar past code (if found)
+- After writes: Stores the code for future recall
+
+### Verify It's Working
+
+```bash
+afterimage stats    # Check KB statistics
+afterimage search "authentication"  # Search your code memory
+afterimage recent   # See recent stored entries
 ```
 
 ### Requirements
 
 - Python 3.10+
-- SQLite (built-in)
-- sentence-transformers (optional, for semantic search)
+- Claude Code CLI
+- Linux or macOS (Windows support planned)
 
-## Quick Start
+---
 
-### 1. Initialize Configuration
+## Installation Options
 
-```bash
-afterimage config --init
-```
-
-This creates `~/.afterimage/config.yaml` with default settings.
-
-### 2. Install Claude Code Hook
-
-Copy the hook to your Claude Code hooks directory:
+### From PyPI (Recommended)
 
 ```bash
-mkdir -p ~/.claude/hooks
-cp hooks/afterimage_hook.py ~/.claude/hooks/
+# Basic install
+pip install ai-afterimage
+
+# With PostgreSQL support (for multi-user/concurrent access)
+pip install ai-afterimage[postgresql]
 ```
 
-Configure the hook in `~/.claude/hooks/afterimage.json`:
+### From Source
 
-```json
-{
-  "name": "afterimage",
-  "description": "Episodic memory for code",
-  "pre_tool": ["Write", "Edit"],
-  "post_tool": ["Write", "Edit"],
-  "script": "afterimage_hook.py"
-}
+```bash
+git clone https://github.com/DragonShadows1978/AI-AfterImage.git
+cd AI-AfterImage
+pip install -e ".[embeddings]"
 ```
 
-### 3. Ingest Existing Transcripts (Optional)
+---
+
+## Ingest Existing Transcripts (Optional)
 
 If you have existing Claude Code transcripts:
 
@@ -179,6 +201,145 @@ afterimage search "validate" --path validators
 # Output as JSON
 afterimage search "database connection" --json
 ```
+
+## PostgreSQL Backend (Optional)
+
+For better concurrent access and vector search performance, AfterImage v0.2.0+ supports PostgreSQL with pgvector as an alternative to SQLite.
+
+### Why PostgreSQL?
+
+| Feature | SQLite | PostgreSQL |
+|---------|--------|------------|
+| Setup | Zero-config | Requires installation |
+| Concurrent writes | Limited | Excellent |
+| Vector search | Approximate (brute force) | Native pgvector with IVFFlat |
+| Multi-user | Single user | Multi-user capable |
+| Large datasets | Works well to ~100K entries | Scales to millions |
+| Network access | Local only | Network capable |
+
+**Recommendation**: Start with SQLite (default). Switch to PostgreSQL if you need concurrent access from multiple Claude Code sessions or have a large code history.
+
+### PostgreSQL Setup
+
+#### 1. Install PostgreSQL and pgvector
+
+```bash
+# Ubuntu/Debian
+sudo apt install postgresql postgresql-contrib
+
+# Install pgvector extension
+sudo apt install postgresql-server-dev-all
+git clone https://github.com/pgvector/pgvector.git
+cd pgvector && make && sudo make install
+```
+
+#### 2. Create the Database
+
+```bash
+# Create user and database
+sudo -u postgres psql <<EOF
+CREATE USER afterimage WITH PASSWORD 'your_secure_password';
+CREATE DATABASE afterimage OWNER afterimage;
+\c afterimage
+CREATE EXTENSION vector;
+EOF
+```
+
+#### 3. Install Python Dependencies
+
+```bash
+# With package
+pip install -e ".[postgresql]"
+
+# Or manually
+pip install asyncpg psycopg[binary] pgvector
+```
+
+#### 4. Configure AfterImage
+
+Edit `~/.afterimage/config.yaml`:
+
+```yaml
+storage:
+  backend: postgresql
+
+  sqlite:
+    path: ~/.afterimage/memory.db  # Fallback location
+
+  postgresql:
+    host: localhost
+    port: 5432
+    database: afterimage
+    user: afterimage
+    # Password via environment variable (recommended)
+    # Or set here: password: your_secure_password
+    min_pool_size: 2
+    max_pool_size: 10
+
+# Other settings remain the same
+search:
+  max_results: 5
+  relevance_threshold: 0.6
+
+embeddings:
+  model: all-MiniLM-L6-v2
+  device: cpu  # or cuda
+```
+
+### Environment Variables
+
+Set the PostgreSQL password via environment variable (recommended over storing in config):
+
+```bash
+# Add to ~/.bashrc or ~/.zshrc
+export AFTERIMAGE_PG_PASSWORD=your_secure_password
+
+# Optional: Override backend from config
+export AFTERIMAGE_BACKEND=postgresql
+```
+
+| Variable | Description |
+|----------|-------------|
+| `AFTERIMAGE_BACKEND` | Override backend: `sqlite` or `postgresql` |
+| `AFTERIMAGE_PG_PASSWORD` | PostgreSQL password |
+| `AFTERIMAGE_PG_HOST` | PostgreSQL host |
+| `AFTERIMAGE_PG_PORT` | PostgreSQL port |
+| `AFTERIMAGE_PG_DATABASE` | Database name |
+| `AFTERIMAGE_PG_USER` | Database user |
+| `AFTERIMAGE_DATABASE_URL` | Full connection string (overrides individual params) |
+
+### Migrating from SQLite to PostgreSQL
+
+If you have existing code memories in SQLite, migrate them to PostgreSQL:
+
+```bash
+# Migrate all entries
+afterimage migrate --sqlite ~/.afterimage/memory.db --postgresql
+
+# Validate migration
+afterimage stats --backend postgresql
+
+# Verify entry counts match
+afterimage stats --backend sqlite
+```
+
+The migration:
+- Copies all entries with embeddings preserved
+- Supports resumable migration (skips existing entries)
+- Validates embedding integrity
+
+### Graceful Fallback
+
+The hook automatically falls back to SQLite if PostgreSQL is unavailable:
+
+1. PostgreSQL server unreachable
+2. `psycopg` package not installed
+3. Authentication failure
+4. Database doesn't exist
+
+You'll see in stderr: `[AfterImage] PostgreSQL unavailable (...), falling back to SQLite`
+
+This ensures your code memory continues working even if PostgreSQL has issues.
 
 ## CLI Commands
 
@@ -314,23 +475,67 @@ def validate_email(email):
 
 ### Hook System
 
-The Claude Code hook integrates AfterImage into your workflow:
+The Claude Code hook integrates AfterImage into your workflow using a **deny-then-allow pattern** that ensures Claude actually sees relevant past code before writing.
 
-#### Pre-Write Hook
+#### How It Works
 
-Before Claude writes code:
-1. Check if target file is code (filter.py)
-2. Search KB for similar code
-3. If found, inject context into conversation
-4. Pass through to actual Write/Edit
+```
+Claude attempts Write/Edit
+        |
+        v
+   AfterImage hook fires
+        |
+        v
+   Search KB for similar code
+        |
+   +----+----+
+Found      Not Found
+   |           |
+   v           v
+ DENY       Allow
+ + show     (write
+ context    proceeds)
+   |
+   v
+Claude SEES the past code
+(deny reason shown to Claude!)
+   |
+   v
+Claude retries Write
+        |
+        v
+   Hook recognizes retry
+   (same content hash)
+        |
+        v
+      ALLOW
+        |
+        v
+   File created
+        |
+        v
+   Post-hook stores
+   code in KB
+```
+
+#### Pre-Write Hook (Deny-Then-Allow)
+
+The key insight: Claude Code's hook system shows `permissionDecisionReason` to Claude when a hook returns `deny`. We use this to inject context:
+
+1. **First attempt**: Hook searches KB, finds similar code
+2. **DENY** with reason containing the code examples
+3. Claude **sees** the past code (it's in the deny message!)
+4. Claude **retries** the write (automatically or adjusted)
+5. **Second attempt**: Hook recognizes the same content hash, **allows** it
+
+This ensures Claude has seen relevant patterns before the file is actually written.
 
 #### Post-Write Hook
 
-After Claude writes code:
-1. Check if file is code
-2. Extract the code change
-3. Generate embedding
-4. Store in KB with context
+After Claude successfully writes code:
+1. Check if file is code (not markdown, JSON, etc.)
+2. Generate embedding (optional, for semantic search)
+3. Store in KB with session context
 
 ## Configuration
 
@@ -381,6 +586,46 @@ filter:
 embeddings:
   model: all-MiniLM-L6-v2
   device: cpu  # or cuda
+```
+
+## Offline Mode
+
+AfterImage is designed to work **completely offline** after the initial setup. This ensures your code memory is always accessible, even without internet.
+
+### Initial Setup (Requires Network)
+
+On first use with embeddings enabled, the sentence-transformers model (~90MB) is downloaded and cached:
+
+```bash
+# First use downloads the model to ~/.afterimage/models/
+afterimage search "test"  # Downloads all-MiniLM-L6-v2
+```
+
+### Fully Offline After Setup
+
+After the model is cached, all operations work offline:
+
+- **SQLite database** - Local file storage, no network
+- **FTS5 search** - Built into SQLite, no network
+- **Embeddings** - Model loaded from local cache
+- **Configuration** - Local YAML files only
+
+### What's Cached
+
+| Component | Location | Size |
+|-----------|----------|------|
+| Knowledge Base | `~/.afterimage/memory.db` | Varies |
+| Embedding Model | `~/.afterimage/models/` | ~90MB |
+| Configuration | `~/.afterimage/config.yaml` | <1KB |
+
+### Verifying Offline Readiness
+
+```bash
+# Check if model is cached
+ls ~/.afterimage/models/models--sentence-transformers--all-MiniLM-L6-v2
+
+# Test offline search (disconnect network first to verify)
+afterimage search "function"
 ```
 
 ## Performance
@@ -439,7 +684,11 @@ MIT License - See [LICENSE](LICENSE) for details.
 - [x] Context injection
 - [x] CLI commands
 - [x] Claude Code hooks
-- [x] Test suite
+- [x] Test suite (163 tests, 88% coverage)
+- [x] Offline mode (works without network after model download)
+- [x] **v0.2.0**: PostgreSQL backend with pgvector (optional)
+- [x] **v0.2.0**: Graceful fallback from PostgreSQL to SQLite
+- [x] **v0.2.0**: Environment variable configuration
 
 ## Contributing
 

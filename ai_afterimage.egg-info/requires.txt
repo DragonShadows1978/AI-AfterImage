@@ -1,11 +1,12 @@
 pyyaml>=6.0
 
 [all]
-ai-afterimage[dev,embeddings]
+ai-afterimage[dev,embeddings,postgresql]
 
 [dev]
 pytest>=7.0
 pytest-cov>=4.0
+pytest-asyncio>=0.21.0
 black>=23.0
 ruff>=0.1.0
 mypy>=1.0
@@ -13,3 +14,10 @@ mypy>=1.0
 [embeddings]
 sentence-transformers>=2.2.0
 torch>=2.0.0
+
+[postgresql]
+asyncpg>=0.29.0
+psycopg[binary]>=3.1.0
+pgvector>=0.2.5
+numpy>=1.24.0
+nest-asyncio>=1.5.0
