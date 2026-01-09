@@ -137,9 +137,19 @@ sudo -u postgres psql -d afterimage -c "CREATE EXTENSION vector;"
 # 3. Install with PostgreSQL support
 pip install ai-afterimage[postgresql]
 
-# 4. Set password environment variable
+# 4. Set password environment variable (REQUIRED for PostgreSQL)
 export AFTERIMAGE_PG_PASSWORD=yourpassword
+
+# Add to shell config for persistence
+echo 'export AFTERIMAGE_PG_PASSWORD=yourpassword' >> ~/.bashrc
+
+# 5. Update config to use PostgreSQL backend
+# Edit ~/.afterimage/config.yaml and add:
+#   storage:
+#     backend: postgresql
 ```
+
+**Important**: The `AFTERIMAGE_PG_PASSWORD` environment variable must be set before running any afterimage commands when using PostgreSQL. Without it, authentication will fail.
 
 See the [PostgreSQL Backend](#postgresql-backend-optional-1) section below for full configuration options.
 
