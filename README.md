@@ -65,88 +65,71 @@ context
 - CLI for search and management
 - **v0.2.0**: Optional PostgreSQL backend with pgvector
 
-## Installation
+## Quick Start
 
-### From Source
+### Step 1: Install
 
 ```bash
-# Clone the repository
-git clone https://github.com/DragonShadows1978/AI-AfterImage.git
-cd AI-AfterImage
+pip install ai-afterimage
+```
 
-# Install base package
-pip install -e .
+### Step 2: Setup
 
-# Install with embedding support (recommended)
-pip install -e ".[embeddings]"
+```bash
+afterimage setup
+```
+
+This automatically:
+- Creates `~/.afterimage/` configuration
+- Installs the hook to `~/.claude/hooks/`
+- Configures `~/.claude/settings.json`
+- Downloads the embedding model (~90MB)
+
+### Step 3: Done
+
+Start Claude Code. AfterImage now works invisibly in the background:
+- Before writes: Shows similar past code (if found)
+- After writes: Stores the code for future recall
+
+### Verify It's Working
+
+```bash
+afterimage stats    # Check KB statistics
+afterimage search "authentication"  # Search your code memory
+afterimage recent   # See recent stored entries
 ```
 
 ### Requirements
 
 - Python 3.10+
-- SQLite (built-in)
-- sentence-transformers (optional, for semantic search)
+- Claude Code CLI
+- Linux or macOS (Windows support planned)
 
-## Quick Start
+---
 
-### 1. Initialize Configuration
+## Installation Options
 
-```bash
-afterimage config --init
-```
-
-This creates `~/.afterimage/config.yaml` with default settings.
-
-### 2. Install Claude Code Hook
-
-Copy the hook to your Claude Code hooks directory:
+### From PyPI (Recommended)
 
 ```bash
-mkdir -p ~/.claude/hooks
-cp hooks/afterimage_hook.py ~/.claude/hooks/
-chmod +x ~/.claude/hooks/afterimage_hook.py
+# Basic install
+pip install ai-afterimage
+
+# With PostgreSQL support (for multi-user/concurrent access)
+pip install ai-afterimage[postgresql]
 ```
 
-Add the hook to your Claude Code settings (`~/.claude/settings.json`):
-
-```json
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Write|Edit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/path/to/home/.claude/hooks/afterimage_hook.py"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Write|Edit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/path/to/home/.claude/hooks/afterimage_hook.py"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-**Important**: Update the path to match your home directory (e.g., `/home/username/.claude/hooks/afterimage_hook.py`).
-
-Set the AfterImage path environment variable (or edit the hook to set the path):
+### From Source
 
 ```bash
-export AFTERIMAGE_PATH="$HOME/AI-AfterImage"
+git clone https://github.com/DragonShadows1978/AI-AfterImage.git
+cd AI-AfterImage
+pip install -e ".[embeddings]"
 ```
 
-### 3. Ingest Existing Transcripts (Optional)
+---
+
+## Ingest Existing Transcripts (Optional)
 
 If you have existing Claude Code transcripts:
 
