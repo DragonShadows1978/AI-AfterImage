@@ -1,7 +1,7 @@
 Metadata-Version: 2.4
 Name: ai-afterimage
-Version: 0.2.1
-Summary: Episodic memory for Claude Code - persistent memory of code written across sessions
+Version: 0.3.0
+Summary: Episodic memory for Claude Code - persistent memory of code written across sessions with churn tracking
 Author-email: DragonShadows1978 <noreply@afterimage.dev>
 License: MIT
 Project-URL: Homepage, https://github.com/DragonShadows1978/AI-AfterImage
@@ -108,7 +108,98 @@ context
 - No cloud, no API calls - everything local
 - **Works offline** after initial model download
 - CLI for search and management
-- **v0.2.0**: Optional PostgreSQL backend with pgvector
+- **v0.2.1**: Optional PostgreSQL backend with pgvector
+- **v0.3.0**: Semantic Chunking for smarter context injection
+
+## Semantic Chunking (v0.3.0)
+
+AfterImage now includes intelligent context injection that:
+
+- **Parses code into semantic units** - Functions, classes, methods instead of raw files
+- **Scores snippets by relevance** - Recency (20%), proximity (25%), semantic similarity (35%), project awareness (20%)
+- **Summarizes similar snippets** - Groups 3+ similar snippets to reduce token usage
+- **Caches results** - 108x speedup on repeated operations
+
+Enable via `~/.afterimage/config.yaml`:
+
+```yaml
+semantic_chunking:
+  enabled: true
+  max_tokens: 2000
+  summarization:
+    enabled: true
+    summary_mode_threshold: 3
+```
+
+See [docs/semantic_chunking.md](docs/semantic_chunking.md) for full documentation.
+
+## Code Churn Tracking (v0.3.0)
+
+AfterImage now tracks file and function modification patterns:
+
+- **Tier Classification** - Files categorized as Gold (stable), Silver (normal), Bronze (active), Red (hot)
+- **Smart Warnings** - Alerts before modifying stable files or frequently-changed functions
+- **Function-Level Tracking** - AST-based detection for Python, regex for other languages
+- **Session-Aware** - Track edits across Claude Code sessions
+
+### Churn Tier System
+
+| Tier | Edits (30d) | Warning Behavior |
+|------|-------------|------------------|
+| Gold | 0-2 | Warns before modification |
+| Silver | 3-10 | Normal operation |
+| Bronze | 11-20 | Churn velocity alerts |
+| Red | 21+ | Excessive churn warnings |
+
+### Churn CLI Commands
+
+```bash
+# Show churn stats for a file
+afterimage churn src/app.py
+
+# Show function-level details
+afterimage churn src/app.py --functions
+
+# Show edit history
+afterimage churn src/app.py --history
+
+# List hotspots (most churned files)
+afterimage hotspots --limit 10
+
+# List files by tier
+afterimage files --tier gold
+afterimage files --tier red
+```
+
+### Warning Examples
+
+**Gold Tier Warning:**
+```
+File: src/core/auth.py
+Tier: GOLD (Stable - rarely changed)
+
+This file is stable and rarely modified.
+  - Total edits: 2
+  - Last edit: 2026-01-01T10:30:00
+
+Are you sure this change is necessary?
+Retry your write if intentional.
+```
+
+**Repetitive Function Warning:**
+```
+File: src/handlers/api.py
+Function: process_request()
+
+This function has been modified 4 times in the last 24 hours.
+
+Possible issues:
+  - Bug not fully fixed
+  - Requirements unclear
+  - Function needs redesign
+
+Consider stepping back to understand the root cause.
+```
 
 ## Quick Start
 
@@ -157,12 +248,46 @@ afterimage recent   # See recent stored entries
 ### From PyPI (Recommended)
 
 ```bash
-# Basic install
+# Basic install (SQLite backend - works out of the box)
 pip install ai-afterimage
 
 # With PostgreSQL support (for multi-user/concurrent access)
 pip install ai-afterimage[postgresql]
 ```
+
+### PostgreSQL Backend (Optional)
+
+If you want concurrent access (multiple Claude sessions) or shared team memory:
+
+```bash
+# 1. Install PostgreSQL and pgvector
+# Ubuntu/Debian:
+sudo apt install postgresql postgresql-contrib
+# Then install pgvector extension (see https://github.com/pgvector/pgvector)
+
+# 2. Create database
+sudo -u postgres psql -c "CREATE USER afterimage WITH PASSWORD 'yourpassword';"
+sudo -u postgres psql -c "CREATE DATABASE afterimage OWNER afterimage;"
+sudo -u postgres psql -d afterimage -c "CREATE EXTENSION vector;"
+
+# 3. Install with PostgreSQL support
+pip install ai-afterimage[postgresql]
+
+# 4. Set password environment variable (REQUIRED for PostgreSQL)
+export AFTERIMAGE_PG_PASSWORD=yourpassword
+
+# Add to shell config for persistence
+echo 'export AFTERIMAGE_PG_PASSWORD=yourpassword' >> ~/.bashrc
+
+# 5. Update config to use PostgreSQL backend
+# Edit ~/.afterimage/config.yaml and add:
+#   storage:
+#     backend: postgresql
+```
+
+**Important**: The `AFTERIMAGE_PG_PASSWORD` environment variable must be set before running any afterimage commands when using PostgreSQL. Without it, authentication will fail.
+
+See the [PostgreSQL Backend](#postgresql-backend-optional-1) section below for full configuration options.
 
 ### From Source
 
@@ -689,6 +814,17 @@ MIT License - See [LICENSE](LICENSE) for details.
 - [x] **v0.2.0**: PostgreSQL backend with pgvector (optional)
 - [x] **v0.2.0**: Graceful fallback from PostgreSQL to SQLite
 - [x] **v0.2.0**: Environment variable configuration
+
+## Roadmap
+
+Planned features for upcoming releases:
+
+- [ ] **Background Embedding Daemon** - Async embedding generation service with systemd/launchd integration, GPU acceleration, and progress monitoring
+- [x] **Semantic Code Chunking** (v0.3.0) - Break code into meaningful units (functions, classes, blocks) instead of raw files for more precise context injection
+- [x] **Churn Tracking** (v0.3.0) - Detect repeatedly modified code, distinguish iteration from bug-chasing, surface stability metrics
+- [ ] **Code Pattern Clustering** - Automatic grouping of related code using HDBSCAN, with 2D/3D visualization via UMAP
+- [ ] **Search Quality Improvements** - Embedding validation, relevance feedback loop, drift detection
+- [ ] **VS Code Support** - MCP server architecture for VS Code Claude extension compatibility
 
 ## Contributing
 

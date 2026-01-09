@@ -21,12 +21,6 @@ def temp_db():
 
 
 @pytest.fixture
-def kb(temp_db):
-    """Create a KnowledgeBase instance with temporary database."""
-    return KnowledgeBase(db_path=temp_db)
-
-
-@pytest.fixture
 def mock_embedder():
     """Create a mock embedder for testing without sentence-transformers."""
     embedder = MagicMock()
@@ -43,9 +37,24 @@ def mock_embedder():
 
 
 @pytest.fixture
-def search(kb, mock_embedder):
+def backend(temp_db):
+    """Create a storage backend instance."""
+    from afterimage.storage import SQLiteBackend
+    backend = SQLiteBackend(db_path=temp_db)
+    backend.initialize()
+    return backend
+
+
+@pytest.fixture
+def kb(backend):
+    """Create a KnowledgeBase instance with backend."""
+    return KnowledgeBase(backend=backend)
+
+
+@pytest.fixture
+def search(backend, mock_embedder):
     """Create a HybridSearch instance with mock embedder."""
-    return HybridSearch(kb=kb, embedder=mock_embedder)
+    return HybridSearch(backend=backend, embedder=mock_embedder)
 
 
 class TestSearchResult:

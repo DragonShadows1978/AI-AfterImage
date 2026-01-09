@@ -8,16 +8,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **Offline functionality tests** - 9 new tests validating offline operation
-- Comprehensive documentation for offline mode in README
-- PyPI publish workflow with trusted publishing
-- CONTRIBUTING.md with development guidelines
+- Minor improvements and bug fixes
+
+## [0.3.0] - 2026-01-09
+
+### Added
+- **Code Churn Tracking System**
+  - Gold/Silver/Bronze/Red tier classification based on edit frequency
+  - Function-level change detection using AST (Python) and regex (other languages)
+  - Automatic tier calculation with 30-day rolling window
+  - Configurable warning thresholds for stable file modifications
+
+- **Churn Warnings in Hook**
+  - Pre-write warnings for Gold tier (stable) file modifications
+  - Warnings for repetitive function edits (>3 in 24 hours)
+  - Red tier (high-churn) file alerts
+  - Integrated with deny-then-allow pattern
+
+- **New CLI Commands**
+  - `afterimage churn <file>` - Show file churn statistics
+  - `afterimage churn <file> --functions` - Show function-level stats
+  - `afterimage churn <file> --history` - Show edit history
+  - `afterimage hotspots` - Rank files by churn score
+  - `afterimage files --tier <tier>` - List files by tier
+
+- **Semantic Chunking**
+  - Intelligent code parsing into semantic units
+  - Multi-factor relevance scoring
+  - Summary mode for similar snippets
+  - 108x cache speedup
+
+### Technical Details
+
+#### Churn Tiers
+| Tier | Edits (30 days) | Meaning |
+|------|-----------------|---------|
+| Gold | 0-2 | Stable, rarely changed |
+| Silver | 3-10 | Normal activity |
+| Bronze | 11-20 | High activity |
+| Red | 21+ or 5+ in 24h | Excessive churn |
+
+## [0.2.0] - 2026-01-06
+
+### Added
+- **PostgreSQL Backend with pgvector**
+  - Optional alternative to SQLite for multi-user access
+  - Native vector similarity search
+  - Connection pooling with fallback
+
+- **Graceful Backend Fallback**
+  - Automatic fallback from PostgreSQL to SQLite
+  - Connection pool reuse across hook invocations
+
+- **Environment Variable Configuration**
+  - `AFTERIMAGE_BACKEND` - Backend selection
+  - `AFTERIMAGE_PG_PASSWORD` - PostgreSQL password
+  - `AFTERIMAGE_PG_HOST/PORT/DATABASE/USER` - Connection params
+  - `AFTERIMAGE_DATABASE_URL` - Full connection string
 
 ### Fixed
 - Deprecated `datetime.utcnow()` replaced with `datetime.now(timezone.utc)`
-
-### Changed
-- Test count increased to 163 tests (from 154)
 
 ## [0.1.0] - 2026-01-06
 

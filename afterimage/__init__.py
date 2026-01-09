@@ -4,11 +4,14 @@ AI-AfterImage: Episodic memory for Claude Code.
 Provides persistent memory of code written across sessions through
 a Claude Code hook system with SQLite/PostgreSQL + vector embeddings.
 
+Version 0.3.0 adds code churn tracking with file stability tiers
+(Gold/Silver/Bronze/Red) and warnings for high-churn patterns.
+
 Version 0.2.0 adds PostgreSQL backend with pgvector for concurrent
 write support in multi-agent RDE workflows.
 """
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 from .kb import KnowledgeBase
 from .search import HybridSearch, SearchResult

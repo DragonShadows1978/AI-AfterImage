@@ -508,7 +508,7 @@ class TestMain:
 
         assert exc_info.value.code == 0
         captured = capsys.readouterr()
-        assert "0.1.0" in captured.out
+        assert "0.3.0" in captured.out
 
     def test_main_unknown_command(self, monkeypatch, capsys):
         """Test main with unknown command."""

@@ -1,0 +1,46 @@
+[Unit]
+Description=AfterImage Embedding Daemon
+Documentation=https://github.com/AI-AfterImage
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=notify
+User=vader
+Group=vader
+
+# Environment
+Environment=AFTERIMAGE_PG_PASSWORD=afterimage
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/home/vader/.afterimage/embedder.env
+
+# Working directory
+WorkingDirectory=/home/vader/mini-mind-v2/missions/mission_bab56af4/workspace
+
+# Main process
+ExecStart=/usr/bin/python3 -m afterimage_embedder.daemon
+ExecReload=/bin/kill -HUP $MAINPID
+
+# Restart policy
+Restart=on-failure
+RestartSec=10
+WatchdogSec=600
+
+# Resource limits
+MemoryMax=4G
+CPUQuota=80%
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/vader/.afterimage
+PrivateTmp=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=afterimage-embedder
+
+[Install]
+WantedBy=multi-user.target

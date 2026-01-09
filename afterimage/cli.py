@@ -623,6 +623,165 @@ def _format_bytes(size: int) -> str:
     return f"{size:.1f} TB"
 
 
+# =============================================================================
+# CHURN TRACKING COMMANDS (v0.3.0)
+# =============================================================================
+
+def cmd_churn(args):
+    """Show churn statistics for a file."""
+    try:
+        from .churn import ChurnTracker, format_tier_badge
+    except ImportError:
+        print("Error: Churn tracking module not available")
+        return 1
+
+    tracker = ChurnTracker()
+    tracker.initialize()
+
+    file_path = args.file
+
+    if args.json:
+        import json as json_module
+        stats = tracker.get_file_stats(file_path)
+        output = {"file_stats": stats.to_dict()}
+
+        if args.functions:
+            func_stats = tracker.get_function_stats(file_path)
+            output["function_stats"] = [f.to_dict() for f in func_stats]
+
+        if args.history:
+            history = tracker.get_edit_history(file_path, limit=args.history_limit)
+            output["history"] = [h.to_dict() for h in history]
+
+        print(json_module.dumps(output, indent=2))
+    else:
+        stats = tracker.get_file_stats(file_path)
+
+        print(f"\nChurn Statistics: {file_path}")
+        print("=" * 60)
+        print(f"Tier:            {format_tier_badge(stats.tier)}")
+        print(f"Total edits:     {stats.total_edits}")
+        print(f"Last 24h:        {stats.edits_last_24h}")
+        print(f"Last 7 days:     {stats.edits_last_7d}")
+        print(f"Last 30 days:    {stats.edits_last_30d}")
+
+        if stats.first_edit:
+            print(f"\nFirst edit:      {stats.first_edit[:19]}")
+        if stats.last_edit:
+            print(f"Last edit:       {stats.last_edit[:19]}")
+
+        if args.functions:
+            func_stats = tracker.get_function_stats(file_path)
+            if func_stats:
+                print(f"\nFunction-level churn:")
+                print("-" * 40)
+                for f in func_stats[:10]:
+                    change_summary = ", ".join(f.change_types[:3]) if f.change_types else "unknown"
+                    print(f"  {f.function_name}(): {f.edit_count} edits ({change_summary})")
+
+        if args.history:
+            history = tracker.get_edit_history(file_path, limit=args.history_limit)
+            if history:
+                print(f"\nRecent edit history:")
+                print("-" * 40)
+                for h in history:
+                    func_name = f" [{h.function_name}]" if h.function_name else ""
+                    print(f"  {h.timestamp[:19]} - {h.change_type.value}{func_name}")
+
+    return 0
+
+
+def cmd_hotspots(args):
+    """Show files ranked by churn hotspot score."""
+    try:
+        from .churn import ChurnTracker, format_tier_badge
+    except ImportError:
+        print("Error: Churn tracking module not available")
+        return 1
+
+    tracker = ChurnTracker()
+    tracker.initialize()
+
+    hotspots = tracker.get_hotspots(limit=args.limit)
+
+    if not hotspots:
+        print("No churn data found. Edit some files first!")
+        return 0
+
+    if args.json:
+        import json as json_module
+        output = [
+            {"file_stats": stats.to_dict(), "score": score}
+            for stats, score in hotspots
+        ]
+        print(json_module.dumps(output, indent=2))
+    else:
+        print(f"\nCode Churn Hotspots (Top {args.limit})")
+        print("=" * 70)
+        print(f"{'Rank':<5} {'Score':<8} {'Tier':<10} {'30d':<6} {'File'}")
+        print("-" * 70)
+
+        for i, (stats, score) in enumerate(hotspots, 1):
+            # Truncate file path for display
+            display_path = stats.file_path
+            if len(display_path) > 40:
+                display_path = "..." + display_path[-37:]
+
+            tier_short = stats.tier.value.upper()[:4]
+            print(f"{i:<5} {score:<8.1f} {tier_short:<10} {stats.edits_last_30d:<6} {display_path}")
+
+    return 0
+
+
+def cmd_files_by_tier(args):
+    """Show files filtered by tier."""
+    try:
+        from .churn import ChurnTracker, ChurnTier, format_tier_badge
+    except ImportError:
+        print("Error: Churn tracking module not available")
+        return 1
+
+    tracker = ChurnTracker()
+    tracker.initialize()
+
+    # Parse tier argument
+    tier_map = {
+        "gold": ChurnTier.GOLD,
+        "silver": ChurnTier.SILVER,
+        "bronze": ChurnTier.BRONZE,
+        "red": ChurnTier.RED,
+    }
+
+    tier = tier_map.get(args.tier.lower())
+    if not tier:
+        print(f"Invalid tier: {args.tier}. Use: gold, silver, bronze, red")
+        return 1
+
+    files = tracker.get_files_by_tier(tier)
+
+    if not files:
+        print(f"No files in {args.tier.upper()} tier")
+        return 0
+
+    if args.json:
+        import json as json_module
+        output = [f.to_dict() for f in files]
+        print(json_module.dumps(output, indent=2))
+    else:
+        print(f"\n{format_tier_badge(tier)} Files ({len(files)} total)")
+        print("=" * 60)
+
+        for stats in files[:args.limit]:
+            # Truncate file path for display
+            display_path = stats.file_path
+            if len(display_path) > 50:
+                display_path = "..." + display_path[-47:]
+
+            print(f"  {stats.edits_last_30d:>3} edits | {display_path}")
+
+    return 0
+
+
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -631,7 +790,7 @@ def main():
     )
     parser.add_argument(
         "--version", action="version",
-        version="%(prog)s 0.1.0"
+        version="%(prog)s 0.3.0"
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
@@ -746,6 +905,59 @@ def main():
         help="Also remove all data (~/.afterimage)"
     )
 
+    # churn command (v0.3.0)
+    churn_parser = subparsers.add_parser(
+        "churn", help="Show churn statistics for a file"
+    )
+    churn_parser.add_argument("file", help="File path to analyze")
+    churn_parser.add_argument(
+        "-f", "--functions", action="store_true",
+        help="Show function-level statistics"
+    )
+    churn_parser.add_argument(
+        "-H", "--history", action="store_true",
+        help="Show edit history"
+    )
+    churn_parser.add_argument(
+        "--history-limit", type=int, default=20,
+        help="Number of history entries (default: 20)"
+    )
+    churn_parser.add_argument(
+        "--json", action="store_true",
+        help="Output as JSON"
+    )
+
+    # hotspots command (v0.3.0)
+    hotspots_parser = subparsers.add_parser(
+        "hotspots", help="Show files ranked by churn hotspot score"
+    )
+    hotspots_parser.add_argument(
+        "-l", "--limit", type=int, default=20,
+        help="Number of files to show (default: 20)"
+    )
+    hotspots_parser.add_argument(
+        "--json", action="store_true",
+        help="Output as JSON"
+    )
+
+    # files command (v0.3.0) - filter by tier
+    files_parser = subparsers.add_parser(
+        "files", help="Show files by stability tier"
+    )
+    files_parser.add_argument(
+        "--tier", required=True,
+        choices=["gold", "silver", "bronze", "red"],
+        help="Filter by tier (gold/silver/bronze/red)"
+    )
+    files_parser.add_argument(
+        "-l", "--limit", type=int, default=50,
+        help="Maximum files to show (default: 50)"
+    )
+    files_parser.add_argument(
+        "--json", action="store_true",
+        help="Output as JSON"
+    )
+
     args = parser.parse_args()
 
     if args.command is None:
@@ -763,6 +975,10 @@ def main():
         "config": cmd_config,
         "setup": cmd_setup,
         "uninstall": cmd_uninstall,
+        # Churn tracking commands (v0.3.0)
+        "churn": cmd_churn,
+        "hotspots": cmd_hotspots,
+        "files": cmd_files_by_tier,
     }
 
     handler = commands.get(args.command)

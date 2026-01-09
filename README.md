@@ -64,6 +64,97 @@ context
 - **Works offline** after initial model download
 - CLI for search and management
 - **v0.2.1**: Optional PostgreSQL backend with pgvector
+- **v0.3.0**: Semantic Chunking for smarter context injection
+
+## Semantic Chunking (v0.3.0)
+
+AfterImage now includes intelligent context injection that:
+
+- **Parses code into semantic units** - Functions, classes, methods instead of raw files
+- **Scores snippets by relevance** - Recency (20%), proximity (25%), semantic similarity (35%), project awareness (20%)
+- **Summarizes similar snippets** - Groups 3+ similar snippets to reduce token usage
+- **Caches results** - 108x speedup on repeated operations
+
+Enable via `~/.afterimage/config.yaml`:
+
+```yaml
+semantic_chunking:
+  enabled: true
+  max_tokens: 2000
+  summarization:
+    enabled: true
+    summary_mode_threshold: 3
+```
+
+See [docs/semantic_chunking.md](docs/semantic_chunking.md) for full documentation.
+
+## Code Churn Tracking (v0.3.0)
+
+AfterImage now tracks file and function modification patterns:
+
+- **Tier Classification** - Files categorized as Gold (stable), Silver (normal), Bronze (active), Red (hot)
+- **Smart Warnings** - Alerts before modifying stable files or frequently-changed functions
+- **Function-Level Tracking** - AST-based detection for Python, regex for other languages
+- **Session-Aware** - Track edits across Claude Code sessions
+
+### Churn Tier System
+
+| Tier | Edits (30d) | Warning Behavior |
+|------|-------------|------------------|
+| Gold | 0-2 | Warns before modification |
+| Silver | 3-10 | Normal operation |
+| Bronze | 11-20 | Churn velocity alerts |
+| Red | 21+ | Excessive churn warnings |
+
+### Churn CLI Commands
+
+```bash
+# Show churn stats for a file
+afterimage churn src/app.py
+
+# Show function-level details
+afterimage churn src/app.py --functions
+
+# Show edit history
+afterimage churn src/app.py --history
+
+# List hotspots (most churned files)
+afterimage hotspots --limit 10
+
+# List files by tier
+afterimage files --tier gold
+afterimage files --tier red
+```
+
+### Warning Examples
+
+**Gold Tier Warning:**
+```
+File: src/core/auth.py
+Tier: GOLD (Stable - rarely changed)
+
+This file is stable and rarely modified.
+  - Total edits: 2
+  - Last edit: 2026-01-01T10:30:00
+
+Are you sure this change is necessary?
+Retry your write if intentional.
+```
+
+**Repetitive Function Warning:**
+```
+File: src/handlers/api.py
+Function: process_request()
+
+This function has been modified 4 times in the last 24 hours.
+
+Possible issues:
+  - Bug not fully fixed
+  - Requirements unclear
+  - Function needs redesign
+
+Consider stepping back to understand the root cause.
+```
 
 ## Quick Start
 
@@ -684,8 +775,8 @@ MIT License - See [LICENSE](LICENSE) for details.
 Planned features for upcoming releases:
 
 - [ ] **Background Embedding Daemon** - Async embedding generation service with systemd/launchd integration, GPU acceleration, and progress monitoring
-- [ ] **Semantic Code Chunking** - Break code into meaningful units (functions, classes, blocks) instead of raw files for more precise context injection
-- [ ] **Churn Tracking** - Detect repeatedly modified code, distinguish iteration from bug-chasing, surface stability metrics
+- [x] **Semantic Code Chunking** (v0.3.0) - Break code into meaningful units (functions, classes, blocks) instead of raw files for more precise context injection
+- [x] **Churn Tracking** (v0.3.0) - Detect repeatedly modified code, distinguish iteration from bug-chasing, surface stability metrics
 - [ ] **Code Pattern Clustering** - Automatic grouping of related code using HDBSCAN, with 2D/3D visualization via UMAP
 - [ ] **Search Quality Improvements** - Embedding validation, relevance feedback loop, drift detection
 - [ ] **VS Code Support** - MCP server architecture for VS Code Claude extension compatibility

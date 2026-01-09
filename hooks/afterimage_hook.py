@@ -1,11 +1,20 @@
 #!/usr/bin/env python3
 """
-AI-AfterImage Hook for Claude Code v0.2.0
+AI-AfterImage Hook for Claude Code v0.3.0
 
 Provides episodic code memory through Claude Code's hook system:
 1. Pre-Write/Edit: DENY first attempt with similar code context (Claude sees this!)
-2. Pre-Write/Edit: ALLOW retry attempts (after Claude has seen the context)
-3. Post-Write/Edit: Store the code change in KB for future recall
+2. Pre-Write/Edit: Check for churn warnings (gold tier, repetitive edits, red tier)
+3. Pre-Write/Edit: ALLOW retry attempts (after Claude has seen the context)
+4. Post-Write/Edit: Store the code change in KB for future recall
+5. Post-Write/Edit: Record edit in churn tracker
+
+v0.3.0 Changes:
+- Code churn tracking with Gold/Silver/Bronze/Red tiers
+- Warnings for stable file modifications (Gold tier)
+- Warnings for repetitive function edits (>3 in 24h)
+- Warnings for high-churn files (Red tier)
+- Function-level change classification via AST/regex
 
 v0.2.0 Changes:
 - Config-based backend loading (PostgreSQL or SQLite)
@@ -66,6 +75,10 @@ _hybrid_search_class = None
 _embedding_generator_class = None
 _config_module = None
 
+# Churn tracker (v0.3.0)
+_churn_tracker = None
+CHURN_TRACKING_AVAILABLE = False
+
 AFTERIMAGE_AVAILABLE = False
 
 # =============================================================================
@@ -79,6 +92,7 @@ def _load_afterimage():
     """
     global AFTERIMAGE_AVAILABLE, _kb_class, _code_filter_class
     global _hybrid_search_class, _embedding_generator_class, _config_module
+    global CHURN_TRACKING_AVAILABLE, _churn_tracker
 
     if AFTERIMAGE_AVAILABLE:
         return True
@@ -104,6 +118,18 @@ def _load_afterimage():
                     _embedding_generator_class = EmbeddingGenerator
                 except ImportError:
                     _embedding_generator_class = None
+
+                # Optional: churn tracking (v0.3.0)
+                try:
+                    from afterimage.churn import ChurnTracker
+                    _churn_tracker = ChurnTracker()
+                    _churn_tracker.initialize()
+                    CHURN_TRACKING_AVAILABLE = True
+                except ImportError:
+                    CHURN_TRACKING_AVAILABLE = False
+                except Exception as e:
+                    print(f"[AfterImage] Churn tracking init failed: {e}", file=sys.stderr)
+                    CHURN_TRACKING_AVAILABLE = False
 
                 AFTERIMAGE_AVAILABLE = True
                 return True
@@ -313,6 +339,74 @@ def extract_search_terms(content: str, file_path: str) -> str:
 
 
 # =============================================================================
+# CHURN TRACKING OPERATIONS (v0.3.0)
+# =============================================================================
+
+def check_churn_warning(file_path: str, content: str, old_content: Optional[str] = None) -> Optional[str]:
+    """
+    Check if this edit should trigger a churn warning.
+
+    Warns for:
+    - Gold tier files (stable, rarely modified)
+    - Repetitive function edits (>3 in 24h)
+    - Red tier files (excessive churn)
+
+    Returns:
+        Warning message string if warning should be shown, None otherwise
+    """
+    if not CHURN_TRACKING_AVAILABLE or _churn_tracker is None:
+        return None
+
+    try:
+        session_id = get_session_id()
+        warning = _churn_tracker.get_warning(
+            file_path=file_path,
+            new_code=content,
+            old_code=old_content,
+            session_id=session_id
+        )
+
+        if warning:
+            return warning.format_message()
+
+        return None
+
+    except Exception as e:
+        print(f"[AfterImage] Churn check error: {e}", file=sys.stderr)
+        return None
+
+
+def record_churn_edit(file_path: str, new_code: str, old_code: Optional[str] = None) -> bool:
+    """
+    Record an edit in the churn tracker.
+
+    Args:
+        file_path: Path to the edited file
+        new_code: New content
+        old_code: Previous content (for Edit operations)
+
+    Returns:
+        True if recorded successfully
+    """
+    if not CHURN_TRACKING_AVAILABLE or _churn_tracker is None:
+        return False
+
+    try:
+        session_id = get_session_id()
+        _churn_tracker.record_edit(
+            file_path=file_path,
+            old_code=old_code,
+            new_code=new_code,
+            session_id=session_id
+        )
+        return True
+
+    except Exception as e:
+        print(f"[AfterImage] Churn record error: {e}", file=sys.stderr)
+        return False
+
+
+# =============================================================================
 # SEARCH AND STORE OPERATIONS
 # =============================================================================
 
@@ -338,52 +432,85 @@ def search_similar_code(file_path: str, content: str) -> Optional[str]:
 
         # Create search instance with cached backend
         search = _hybrid_search_class(backend=backend)
-        results = search.search(query, limit=5, threshold=0.01)
+        results = search.search(query, limit=10, threshold=0.01)  # Get more for semantic scoring
 
         if not results:
             return None
 
-        # Format the injection - this is what Claude will see!
-        lines = [
-            "",
-            "=" * 60,
-            f"📚 AFTERIMAGE [{backend_type.upper()}]: You've written similar code before!",
-            "=" * 60,
-            "",
-            "Review these patterns before proceeding:",
-            ""
-        ]
+        # Try semantic injection first (v0.3.0+)
+        try:
+            from afterimage.semantic_chunking import inject_semantic_context
+            injection = inject_semantic_context(
+                [r.to_dict() for r in results],
+                file_path,
+                "Write"
+            )
+            if injection:
+                # Wrap semantic injection in AfterImage banner
+                lines = [
+                    "",
+                    "=" * 60,
+                    f"📚 AFTERIMAGE [{backend_type.upper()}]: You've written similar code before!",
+                    "=" * 60,
+                    "",
+                    injection,
+                    "",
+                    "Consider these patterns. Retry your write now.",
+                    "=" * 60,
+                    ""
+                ]
+                return "\n".join(lines)
+        except ImportError:
+            pass  # Fall back to basic injection
+        except Exception as e:
+            print(f"[AfterImage] Semantic injection failed, using basic: {e}", file=sys.stderr)
 
-        seen_paths = set()
-        for r in results:
-            short_path = "/".join(Path(r.file_path).parts[-3:])
-            if short_path in seen_paths:
-                continue
-            seen_paths.add(short_path)
-
-            if len(seen_paths) > 3:
-                break
-
-            code_preview = r.new_code[:400]
-            lines.append(f"**From:** `{short_path}`")
-            lines.append("```")
-            lines.append(code_preview)
-            if len(r.new_code) > 400:
-                lines.append("... (truncated)")
-            lines.append("```")
-            lines.append("")
-
-        lines.extend([
-            "Consider these patterns. Retry your write now.",
-            "=" * 60,
-            ""
-        ])
-
-        return "\n".join(lines)
+        # Fallback: basic formatting (original v0.2.0 behavior)
+        return _basic_format_injection(results, backend_type)
 
     except Exception as e:
         print(f"[AfterImage] Search error: {e}", file=sys.stderr)
         return None
+
+
+def _basic_format_injection(results, backend_type: str) -> str:
+    """Basic injection formatting (fallback for v0.2.0 compatibility)."""
+    lines = [
+        "",
+        "=" * 60,
+        f"📚 AFTERIMAGE [{backend_type.upper()}]: You've written similar code before!",
+        "=" * 60,
+        "",
+        "Review these patterns before proceeding:",
+        ""
+    ]
+
+    seen_paths = set()
+    for r in results:
+        short_path = "/".join(Path(r.file_path).parts[-3:])
+        if short_path in seen_paths:
+            continue
+        seen_paths.add(short_path)
+
+        if len(seen_paths) > 3:
+            break
+
+        code_preview = r.new_code[:400]
+        lines.append(f"**From:** `{short_path}`")
+        lines.append("```")
+        lines.append(code_preview)
+        if len(r.new_code) > 400:
+            lines.append("... (truncated)")
+        lines.append("```")
+        lines.append("")
+
+    lines.extend([
+        "Consider these patterns. Retry your write now.",
+        "=" * 60,
+        ""
+    ])
+
+    return "\n".join(lines)
 
 
 def store_code(file_path: str, new_code: str, old_code: Optional[str] = None) -> bool:
@@ -454,26 +581,40 @@ def main():
         sys.exit(0)
 
     # =========================================================================
-    # PRE-TOOL: Search for similar code and inject via DENY (first time only)
+    # PRE-TOOL: Search for similar code and churn warnings via DENY (first time only)
     # =========================================================================
     if hook_event == "PreToolUse":
         content = tool_input.get("content", "") or tool_input.get("new_string", "")
+        old_content = tool_input.get("old_string")  # For Edit operations
 
         if content and AFTERIMAGE_AVAILABLE:
             content_hash = get_content_hash(file_path, content)
 
             # First attempt: DENY with context (Claude sees this!)
             if not was_already_shown(content_hash):
-                injection = search_similar_code(file_path, content)
+                # Collect all warnings/injections
+                messages = []
 
+                # 1. Check for churn warnings (v0.3.0)
+                churn_warning = check_churn_warning(file_path, content, old_content)
+                if churn_warning:
+                    messages.append(churn_warning)
+
+                # 2. Search for similar code
+                injection = search_similar_code(file_path, content)
                 if injection:
+                    messages.append(injection)
+
+                # Combine and deny if we have any messages
+                if messages:
                     mark_as_shown(content_hash)
+                    combined_message = "\n".join(messages)
 
                     output = {
                         "hookSpecificOutput": {
                             "hookEventName": "PreToolUse",
                             "permissionDecision": "deny",
-                            "permissionDecisionReason": injection
+                            "permissionDecisionReason": combined_message
                         }
                     }
                     print(json.dumps(output))
@@ -483,27 +624,35 @@ def main():
             # (Claude will retry after seeing context)
 
     # =========================================================================
-    # POST-TOOL: Store the code for future recall
+    # POST-TOOL: Store the code for future recall and record churn
     # =========================================================================
     elif hook_event == "PostToolUse":
         if tool_name == "Write":
             content = tool_input.get("content", "")
             if content:
+                # Store in KB
                 stored = store_code(file_path, content)
                 if stored:
                     _, backend_type = get_backend()
                     print(f"[AfterImage] Stored ({backend_type}): {Path(file_path).name}",
                           file=sys.stderr)
 
+                # Record churn (v0.3.0)
+                record_churn_edit(file_path, content)
+
         elif tool_name == "Edit":
             old_string = tool_input.get("old_string", "")
             new_string = tool_input.get("new_string", "")
             if new_string:
+                # Store in KB
                 stored = store_code(file_path, new_string, old_string)
                 if stored:
                     _, backend_type = get_backend()
                     print(f"[AfterImage] Stored ({backend_type}): {Path(file_path).name}",
                           file=sys.stderr)
+
+                # Record churn (v0.3.0)
+                record_churn_edit(file_path, new_string, old_string)
 
     sys.exit(0)
 

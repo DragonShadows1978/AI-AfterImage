@@ -13,6 +13,20 @@ afterimage/inject.py
 afterimage/kb.py
 afterimage/migrate.py
 afterimage/search.py
+afterimage/churn/__init__.py
+afterimage/churn/classifier.py
+afterimage/churn/storage.py
+afterimage/churn/tiers.py
+afterimage/churn/tracker.py
+afterimage/semantic_chunking/__init__.py
+afterimage/semantic_chunking/chunk_cache.py
+afterimage/semantic_chunking/chunker.py
+afterimage/semantic_chunking/config.py
+afterimage/semantic_chunking/integration.py
+afterimage/semantic_chunking/relevance_scorer.py
+afterimage/semantic_chunking/smart_injector.py
+afterimage/semantic_chunking/snippet_summarizer.py
+afterimage/semantic_chunking/token_budget.py
 afterimage/storage/__init__.py
 afterimage/storage/base.py
 afterimage/storage/postgres_backend.py
@@ -25,6 +39,7 @@ ai_afterimage.egg-info/requires.txt
 ai_afterimage.egg-info/top_level.txt
 hooks/README.md
 hooks/afterimage_hook.py
+tests/test_churn.py
 tests/test_cli.py
 tests/test_extract.py
 tests/test_filter.py
@@ -32,3 +47,4 @@ tests/test_inject.py
 tests/test_integration.py
 tests/test_kb.py
 tests/test_search.py
+tests/test_semantic_chunking_integration.py

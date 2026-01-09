@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ai-afterimage"
-version = "0.2.1"
-description = "Episodic memory for Claude Code - persistent memory of code written across sessions"
+version = "0.3.0"
+description = "Episodic memory for Claude Code - persistent memory of code written across sessions with churn tracking"
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
