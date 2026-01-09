@@ -679,6 +679,17 @@ MIT License - See [LICENSE](LICENSE) for details.
 - [x] **v0.2.0**: Graceful fallback from PostgreSQL to SQLite
 - [x] **v0.2.0**: Environment variable configuration
 
+## Roadmap
+
+Planned features for upcoming releases:
+
+- [ ] **Background Embedding Daemon** - Async embedding generation service with systemd/launchd integration, GPU acceleration, and progress monitoring
+- [ ] **Semantic Code Chunking** - Break code into meaningful units (functions, classes, blocks) instead of raw files for more precise context injection
+- [ ] **Churn Tracking** - Detect repeatedly modified code, distinguish iteration from bug-chasing, surface stability metrics
+- [ ] **Code Pattern Clustering** - Automatic grouping of related code using HDBSCAN, with 2D/3D visualization via UMAP
+- [ ] **Search Quality Improvements** - Embedding validation, relevance feedback loop, drift detection
+- [ ] **VS Code Support** - MCP server architecture for VS Code Claude extension compatibility
+
 ## Contributing
 
 Contributions welcome! Please:
