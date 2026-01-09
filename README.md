@@ -112,12 +112,36 @@ afterimage recent   # See recent stored entries
 ### From PyPI (Recommended)
 
 ```bash
-# Basic install
+# Basic install (SQLite backend - works out of the box)
 pip install ai-afterimage
 
 # With PostgreSQL support (for multi-user/concurrent access)
 pip install ai-afterimage[postgresql]
 ```
+
+### PostgreSQL Backend (Optional)
+
+If you want concurrent access (multiple Claude sessions) or shared team memory:
+
+```bash
+# 1. Install PostgreSQL and pgvector
+# Ubuntu/Debian:
+sudo apt install postgresql postgresql-contrib
+# Then install pgvector extension (see https://github.com/pgvector/pgvector)
+
+# 2. Create database
+sudo -u postgres psql -c "CREATE USER afterimage WITH PASSWORD 'yourpassword';"
+sudo -u postgres psql -c "CREATE DATABASE afterimage OWNER afterimage;"
+sudo -u postgres psql -d afterimage -c "CREATE EXTENSION vector;"
+
+# 3. Install with PostgreSQL support
+pip install ai-afterimage[postgresql]
+
+# 4. Set password environment variable
+export AFTERIMAGE_PG_PASSWORD=yourpassword
+```
+
+See the [PostgreSQL Backend](#postgresql-backend-optional-1) section below for full configuration options.
 
 ### From Source
 
