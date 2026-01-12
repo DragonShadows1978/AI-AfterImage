@@ -595,12 +595,15 @@ def main():
                 # Collect all warnings/injections
                 messages = []
 
-                # 1. Check for churn warnings (v0.3.0)
-                churn_warning = check_churn_warning(file_path, content, old_content)
-                if churn_warning:
-                    messages.append(churn_warning)
+                # 1. Check for churn warnings (v0.3.0) - only for code files
+                # We still track churn for ALL files in PostToolUse, but only warn for code
+                code_filter = _code_filter_class()
+                if code_filter.is_code(file_path, content):
+                    churn_warning = check_churn_warning(file_path, content, old_content)
+                    if churn_warning:
+                        messages.append(churn_warning)
 
-                # 2. Search for similar code
+                # 2. Search for similar code (already filters for code files internally)
                 injection = search_similar_code(file_path, content)
                 if injection:
                     messages.append(injection)

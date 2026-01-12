@@ -504,6 +504,8 @@ class EmbeddingProcessor:
                     "processed": 0,
                     "failed": 0,
                     "priority": 0,
+                    "batches": 0,
+                    "coverage_percent": (stats["with_embeddings"] / stats["total"] * 100) if stats["total"] > 0 else 0,
                     "message": "No entries need embeddings"
                 }
 
