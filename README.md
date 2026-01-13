@@ -789,6 +789,10 @@ Contributions welcome! Please:
 3. Add tests for new functionality
 4. Submit a pull request
 
+## Related Projects
+
+- **[AI-AtlasForge](https://github.com/DragonShadows1978/AI-AtlasForge)** - Autonomous AI research and development platform. Run multi-day missions, accumulate cross-session knowledge, and build software autonomously. AfterImage provides the code memory that persists across AtlasForge missions.
+
 ## Name
 
 **AI** = **A**fter **I**mage
