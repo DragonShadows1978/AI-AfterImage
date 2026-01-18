@@ -49,8 +49,6 @@ ai_afterimage.egg-info/dependency_links.txt
 ai_afterimage.egg-info/entry_points.txt
 ai_afterimage.egg-info/requires.txt
 ai_afterimage.egg-info/top_level.txt
-hooks/README.md
-hooks/afterimage_hook.py
 tests/test_churn.py
 tests/test_cli.py
 tests/test_extract.py

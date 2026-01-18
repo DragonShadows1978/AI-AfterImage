@@ -692,7 +692,7 @@ class SyncPostgreSQLBackend(StorageBackend):
     """
     Synchronous PostgreSQL backend using psycopg3 for thread-safe operations.
 
-    This backend is preferred for multi-threaded environments (like RDE with
+    This backend is preferred for multi-threaded environments (like AtlasForge with
     parallel agents) because each thread can safely use its own connection
     without asyncpg event loop issues.
 

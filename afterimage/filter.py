@@ -12,43 +12,180 @@ from typing import List, Set, Optional
 import yaml
 
 
+# Extensionless files that are commonly code (by exact filename)
+EXTENSIONLESS_CODE_FILES: Set[str] = {
+    # Build files
+    "Makefile", "GNUmakefile", "BSDmakefile", "makefile",
+    # Container/Infrastructure
+    "Dockerfile", "Containerfile",
+    # CI/CD
+    "Jenkinsfile", "Vagrantfile",
+    # Ruby
+    "Rakefile", "Gemfile", "Guardfile", "Brewfile", "Berksfile",
+    "Fastfile", "Appfile", "Deliverfile", "Matchfile", "Scanfile",
+    # JavaScript/Node
+    "Gruntfile", "Gulpfile",
+    # Other
+    "Procfile", "Justfile", "Cakefile", "Snakefile",
+    "SConstruct", "SConscript", "Thorfile", "Puppetfile",
+    "Capfile", "Buildfile", "Jarfile",
+}
+
+
+# Pre-compiled regex patterns for content heuristics (performance optimization)
+_HEURISTIC_PATTERNS = {
+    "python_def": re.compile(r'\bdef\s+\w+\s*\('),
+    "js_function": re.compile(r'\bfunction\s+\w*\s*\('),
+    "rust_fn": re.compile(r'\bfn\s+\w+\s*\('),
+    "go_func": re.compile(r'\bfunc\s+\w+\s*\('),
+    "perl_sub": re.compile(r'\bsub\s+\w+\s*[\(\{]'),
+    "class": re.compile(r'\bclass\s+\w+'),
+    "struct": re.compile(r'\bstruct\s+\w+'),
+    "trait": re.compile(r'\btrait\s+\w+'),
+    "interface": re.compile(r'\binterface\s+\w+'),
+    "import": re.compile(r'\b(import|from|require|use|include)\b'),
+    "control_flow": re.compile(r'\b(if|else|for|while|return|try|catch)\b'),
+    "variable": re.compile(r'\b(const|let|var|val|mut)\s+\w+\s*[=:]'),
+    "semicolon_eol": re.compile(r';\s*$', re.MULTILINE),
+    "type_annotation": re.compile(r':\s*(str|int|bool|float|string|number|boolean|i32|u32|Vec)'),
+    "decorator": re.compile(r'^@\w+', re.MULTILINE),
+}
+
+# Pre-compiled shebang patterns
+_SHEBANG_PATTERNS = [
+    re.compile(r'#!\s*/usr/bin/env\s+\w+'),
+    re.compile(r'#!\s*/bin/(ba)?sh'),
+    re.compile(r'#!\s*/usr/bin/python'),
+    re.compile(r'#!\s*/usr/bin/perl'),
+    re.compile(r'#!\s*/usr/bin/ruby'),
+    re.compile(r'#!\s*/usr/bin/node'),
+]
+
+
 # Default code extensions (whitelist)
 DEFAULT_CODE_EXTENSIONS: Set[str] = {
-    ".py", ".pyw",          # Python
-    ".js", ".mjs", ".cjs",  # JavaScript
-    ".ts", ".tsx", ".jsx",  # TypeScript/React
-    ".rs",                  # Rust
-    ".go",                  # Go
-    ".java",                # Java
-    ".c", ".cpp", ".cc", ".cxx", ".h", ".hpp", ".hxx",  # C/C++
-    ".cs",                  # C#
-    ".rb", ".rake",         # Ruby
-    ".php",                 # PHP
-    ".swift",               # Swift
-    ".kt", ".kts",          # Kotlin
-    ".scala",               # Scala
-    ".clj", ".cljs",        # Clojure
-    ".ex", ".exs",          # Elixir
-    ".erl", ".hrl",         # Erlang
-    ".hs", ".lhs",          # Haskell
-    ".ml", ".mli",          # OCaml
-    ".fs", ".fsx", ".fsi",  # F#
-    ".pl", ".pm",           # Perl
-    ".lua",                 # Lua
-    ".r", ".R",             # R
-    ".jl",                  # Julia
-    ".nim",                 # Nim
-    ".zig",                 # Zig
-    ".v",                   # V
-    ".d",                   # D
-    ".dart",                # Dart
-    ".vue",                 # Vue
-    ".svelte",              # Svelte
-    ".elm",                 # Elm
-    ".sol",                 # Solidity
-    ".sql",                 # SQL
-    ".sh", ".bash", ".zsh", # Shell
-    ".ps1", ".psm1",        # PowerShell
+    # Python
+    ".py", ".pyw", ".pyi",
+    # JavaScript
+    ".js", ".mjs", ".cjs",
+    # TypeScript/React
+    ".ts", ".tsx", ".jsx",
+    # Rust
+    ".rs",
+    # Go
+    ".go",
+    # Java
+    ".java",
+    # C/C++
+    ".c", ".cpp", ".cc", ".cxx", ".h", ".hpp", ".hxx", ".c++", ".h++",
+    # C#
+    ".cs",
+    # Objective-C/C++
+    ".m", ".mm",
+    # Ruby
+    ".rb", ".rake", ".gemspec",
+    # PHP
+    ".php", ".phtml",
+    # Swift
+    ".swift",
+    # Kotlin
+    ".kt", ".kts",
+    # Scala
+    ".scala", ".sc",
+    # Clojure
+    ".clj", ".cljs", ".cljc", ".edn",
+    # Elixir
+    ".ex", ".exs",
+    # Erlang
+    ".erl", ".hrl",
+    # Haskell
+    ".hs", ".lhs",
+    # OCaml
+    ".ml", ".mli",
+    # F#
+    ".fs", ".fsx", ".fsi",
+    # Perl
+    ".pl", ".pm", ".pod",
+    # Lua
+    ".lua",
+    # R
+    ".r", ".R",
+    # Julia
+    ".jl",
+    # Nim
+    ".nim", ".nims",
+    # Zig
+    ".zig",
+    # V
+    ".v",
+    # D
+    ".d",
+    # Dart
+    ".dart",
+    # Vue
+    ".vue",
+    # Svelte
+    ".svelte",
+    # Elm
+    ".elm",
+    # Solidity
+    ".sol",
+    # SQL
+    ".sql", ".pgsql", ".plsql", ".mysql",
+    # Shell scripts
+    ".sh", ".bash", ".zsh", ".fish", ".csh", ".tcsh", ".ksh",
+    # PowerShell
+    ".ps1", ".psm1", ".psd1",
+    # Windows batch
+    ".bat", ".cmd",
+    # Assembly
+    ".asm", ".s", ".S",
+    # Groovy
+    ".groovy", ".gradle", ".gvy",
+    # Fortran
+    ".f", ".f90", ".f95", ".f03", ".f08", ".for", ".ftn",
+    # Visual Basic
+    ".vb", ".vbs", ".bas",
+    # CoffeeScript
+    ".coffee", ".litcoffee",
+    # Protocol Buffers / gRPC
+    ".proto",
+    # GraphQL
+    ".graphql", ".gql",
+    # Terraform / Infrastructure as Code
+    ".tf", ".tfvars", ".hcl",
+    # Azure Bicep
+    ".bicep",
+    # Nix
+    ".nix",
+    # PureScript
+    ".purs",
+    # Crystal
+    ".cr",
+    # Haxe
+    ".hx",
+    # WebAssembly
+    ".wasm", ".wat",
+    # Lisp family
+    ".lisp", ".lsp", ".cl", ".scm", ".ss", ".rkt",
+    # Ada
+    ".ada", ".adb", ".ads",
+    # COBOL
+    ".cob", ".cbl",
+    # Pascal/Delphi
+    ".pas", ".dpr",
+    # Tcl
+    ".tcl",
+    # AWK/sed
+    ".awk", ".sed",
+    # Hardware description
+    ".vhd", ".vhdl", ".sv", ".svh",
+    # ActionScript/Flex
+    ".as", ".mxml",
+    # Dhall
+    ".dhall",
+    # Makefile extensions (though Makefile has no ext typically)
+    ".mk",
 }
 
 # Default skip extensions (blacklist)
@@ -110,6 +247,7 @@ class CodeFilter:
     - Extension whitelist (code extensions)
     - Extension blacklist (skip extensions)
     - Path pattern blacklist (skip paths)
+    - Extensionless code file detection (Makefile, Dockerfile, etc.)
     - Content heuristics for unknown extensions
     """
 
@@ -118,6 +256,7 @@ class CodeFilter:
         code_extensions: Optional[Set[str]] = None,
         skip_extensions: Optional[Set[str]] = None,
         skip_paths: Optional[List[str]] = None,
+        extensionless_code_files: Optional[Set[str]] = None,
         load_config_file: bool = True
     ):
         """
@@ -127,6 +266,7 @@ class CodeFilter:
             code_extensions: Set of extensions to consider as code
             skip_extensions: Set of extensions to skip
             skip_paths: List of path patterns to skip
+            extensionless_code_files: Set of filenames without extensions that are code
             load_config_file: Whether to load ~/.afterimage/config.yaml
         """
         # Load config file first
@@ -160,6 +300,14 @@ class CodeFilter:
         else:
             self.skip_paths = DEFAULT_SKIP_PATHS.copy()
 
+        # Extensionless code files: use provided, then config, then default
+        if extensionless_code_files is not None:
+            self.extensionless_code_files = extensionless_code_files
+        elif "extensionless_code_files" in filter_config:
+            self.extensionless_code_files = set(filter_config["extensionless_code_files"])
+        else:
+            self.extensionless_code_files = EXTENSIONLESS_CODE_FILES.copy()
+
     def is_code(self, file_path: str, content: Optional[str] = None) -> bool:
         """
         Determine if a file path represents code.
@@ -184,14 +332,16 @@ class CodeFilter:
         if ".min." in name:
             return False
 
+        # Check for extensionless code files (Makefile, Dockerfile, etc.)
+        if name in self.extensionless_code_files:
+            return True
+
         # Get extension (handle multiple dots like .test.js)
         ext = self._get_extension(path)
 
-        # Check explicit skip list - but allow content heuristics to override for unknown ext
+        # Check explicit skip list - no heuristic override for skip extensions
+        # Text files (.txt) are documentation by definition, even if they contain code examples
         if ext in self.skip_extensions:
-            # If content is provided and ext is a "soft skip" (like .txt), use heuristics
-            if content is not None and ext in {".txt", ".unknown"}:
-                return self._content_heuristics(content)
             return False
 
         # Check explicit code list
@@ -233,39 +383,68 @@ class CodeFilter:
         Use content heuristics to determine if text is code.
 
         Returns True if the content appears to be code.
+        This is only used for files with unknown extensions (not in whitelist or blacklist).
+        Uses pre-compiled regex patterns for performance.
         """
-        # Empty or very short content - not useful
+        # Empty or very short content - not useful (early exit)
         if len(content.strip()) < 20:
             return False
 
         # Count code indicators
         code_indicators = 0
 
-        # Function/method definitions
-        if re.search(r'\bdef\s+\w+\s*\(', content):  # Python
+        # Shebang line is a strong indicator of executable script
+        if self._has_shebang(content):
+            code_indicators += 3
+            # Early exit: shebang alone is strong enough
+            if code_indicators >= 2:
+                return True
+
+        # Function/method definitions (using pre-compiled patterns)
+        if _HEURISTIC_PATTERNS["python_def"].search(content):
             code_indicators += 2
-        if re.search(r'\bfunction\s+\w*\s*\(', content):  # JS
+        if _HEURISTIC_PATTERNS["js_function"].search(content):
             code_indicators += 2
-        if re.search(r'\bfn\s+\w+\s*\(', content):  # Rust
+        if _HEURISTIC_PATTERNS["rust_fn"].search(content):
             code_indicators += 2
-        if re.search(r'\bfunc\s+\w+\s*\(', content):  # Go
+        if _HEURISTIC_PATTERNS["go_func"].search(content):
+            code_indicators += 2
+        if _HEURISTIC_PATTERNS["perl_sub"].search(content):
             code_indicators += 2
 
-        # Class definitions
-        if re.search(r'\bclass\s+\w+', content):
+        # Early exit if we already have enough indicators
+        if code_indicators >= 2:
+            return True
+
+        # Class/struct/trait definitions
+        if _HEURISTIC_PATTERNS["class"].search(content):
             code_indicators += 2
+        if _HEURISTIC_PATTERNS["struct"].search(content):
+            code_indicators += 2
+        if _HEURISTIC_PATTERNS["trait"].search(content):
+            code_indicators += 2
+        if _HEURISTIC_PATTERNS["interface"].search(content):
+            code_indicators += 2
+
+        # Early exit if we already have enough indicators
+        if code_indicators >= 2:
+            return True
 
         # Import statements
-        if re.search(r'\b(import|from|require|use|include)\b', content):
+        if _HEURISTIC_PATTERNS["import"].search(content):
             code_indicators += 1
 
         # Common programming constructs
-        if re.search(r'\b(if|else|for|while|return|try|catch)\b', content):
+        if _HEURISTIC_PATTERNS["control_flow"].search(content):
             code_indicators += 1
 
         # Variable assignments with types or keywords
-        if re.search(r'\b(const|let|var|val)\s+\w+\s*=', content):
+        if _HEURISTIC_PATTERNS["variable"].search(content):
             code_indicators += 1
+
+        # Early exit if we already have enough indicators
+        if code_indicators >= 2:
+            return True
 
         # Brackets and braces (common in code)
         bracket_ratio = (content.count('{') + content.count('}') +
@@ -274,14 +453,41 @@ class CodeFilter:
             code_indicators += 1
 
         # Semicolons at end of lines (common in many languages)
-        if re.search(r';\s*$', content, re.MULTILINE):
+        if _HEURISTIC_PATTERNS["semicolon_eol"].search(content):
             code_indicators += 1
 
         # Arrow functions or lambdas
         if '=>' in content or 'lambda' in content:
             code_indicators += 1
 
+        # Type annotations (TypeScript, Python type hints, Rust)
+        if _HEURISTIC_PATTERNS["type_annotation"].search(content):
+            code_indicators += 1
+
+        # Decorators (Python, TypeScript)
+        if _HEURISTIC_PATTERNS["decorator"].search(content):
+            code_indicators += 1
+
         return code_indicators >= 2
+
+    def _has_shebang(self, content: str) -> bool:
+        """
+        Check if content starts with a shebang line.
+
+        Shebangs like #!/usr/bin/env python or #!/bin/bash are strong
+        indicators that a file is an executable script.
+        Uses pre-compiled patterns for performance.
+        """
+        first_line = content.lstrip().split('\n')[0] if content else ""
+        if not first_line.startswith('#!'):
+            return False
+
+        # Use pre-compiled shebang patterns
+        for pattern in _SHEBANG_PATTERNS:
+            if pattern.match(first_line):
+                return True
+
+        return False
 
     def add_code_extension(self, ext: str):
         """Add an extension to the code list."""
@@ -299,10 +505,15 @@ class CodeFilter:
         """Add a path pattern to skip."""
         self.skip_paths.append(path)
 
+    def add_extensionless_code_file(self, filename: str):
+        """Add a filename (without extension) to the extensionless code files list."""
+        self.extensionless_code_files.add(filename)
+
     def get_config(self) -> dict:
         """Get current configuration as a dictionary."""
         return {
             "code_extensions": sorted(self.code_extensions),
             "skip_extensions": sorted(self.skip_extensions),
             "skip_paths": self.skip_paths,
+            "extensionless_code_files": sorted(self.extensionless_code_files),
         }

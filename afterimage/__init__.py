@@ -8,10 +8,10 @@ Version 0.3.0 adds code churn tracking with file stability tiers
 (Gold/Silver/Bronze/Red) and warnings for high-churn patterns.
 
 Version 0.2.0 adds PostgreSQL backend with pgvector for concurrent
-write support in multi-agent RDE workflows.
+write support in multi-agent AtlasForge workflows.
 """
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 from .kb import KnowledgeBase
 from .search import HybridSearch, SearchResult

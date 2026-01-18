@@ -82,15 +82,17 @@ Nothing to see here.
         assert not filter.is_code("document.unknown", content=text_content)
 
     def test_content_heuristics_function_defs(self, filter):
-        """Test content heuristics detect function definitions."""
+        """Test content heuristics detect function definitions for unknown extensions."""
+        # Note: .txt files no longer use content heuristics (they are documentation)
+        # Content heuristics only apply to files with unknown extensions
         python_code = "def process_data(items):\n    return [x * 2 for x in items]"
-        assert filter.is_code("file.txt", content=python_code)
+        assert filter.is_code("file.unknown", content=python_code)
 
         js_code = "function processData(items) {\n    return items.map(x => x * 2);\n}"
-        assert filter.is_code("file.txt", content=js_code)
+        assert filter.is_code("file.unknown", content=js_code)
 
     def test_content_heuristics_class_defs(self, filter):
-        """Test content heuristics detect class definitions."""
+        """Test content heuristics detect class definitions for unknown extensions."""
         code = """
 class DataProcessor:
     def __init__(self):
@@ -99,17 +101,21 @@ class DataProcessor:
     def process(self):
         return self.data
 """
-        assert filter.is_code("file.txt", content=code)
+        # .txt files are documentation and don't use heuristics
+        # Unknown extensions do use content heuristics
+        assert filter.is_code("file.unknown", content=code)
 
     def test_content_heuristics_imports(self, filter):
-        """Test content heuristics detect import statements."""
+        """Test content heuristics detect import statements for unknown extensions."""
         code = """
 import os
 from pathlib import Path
 require('lodash')
 use std::collections::HashMap;
 """
-        assert filter.is_code("file.txt", content=code)
+        # .txt files are documentation and don't use heuristics
+        # Unknown extensions do use content heuristics
+        assert filter.is_code("file.unknown", content=code)
 
     def test_compound_extensions(self, filter):
         """Test handling of compound extensions like .test.js."""

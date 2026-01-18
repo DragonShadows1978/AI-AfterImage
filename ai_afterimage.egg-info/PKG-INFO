@@ -1,6 +1,6 @@
-Metadata-Version: 2.4
+Metadata-Version: 2.2
 Name: ai-afterimage
-Version: 0.3.0
+Version: 0.3.1
 Summary: Episodic memory for Claude Code - persistent memory of code written across sessions with churn tracking
 Author-email: DragonShadows1978 <noreply@afterimage.dev>
 License: MIT
@@ -10,7 +10,6 @@ Project-URL: Issues, https://github.com/DragonShadows1978/AI-AfterImage/issues
 Keywords: claude,claude-code,memory,embeddings,ai,coding-assistant,semantic-search,postgresql,pgvector
 Classifier: Development Status :: 4 - Beta
 Classifier: Intended Audience :: Developers
-Classifier: License :: OSI Approved :: MIT License
 Classifier: Operating System :: OS Independent
 Classifier: Programming Language :: Python :: 3
 Classifier: Programming Language :: Python :: 3.10
@@ -41,7 +40,6 @@ Requires-Dist: ruff>=0.1.0; extra == "dev"
 Requires-Dist: mypy>=1.0; extra == "dev"
 Provides-Extra: all
 Requires-Dist: ai-afterimage[dev,embeddings,postgresql]; extra == "all"
-Dynamic: license-file
 
 # AI-AfterImage
 
