@@ -202,8 +202,22 @@ def _apply_env_overrides(config: AfterImageConfig) -> AfterImageConfig:
         config.postgresql.database = os.environ["AFTERIMAGE_PG_DATABASE"]
     if os.environ.get("AFTERIMAGE_PG_USER"):
         config.postgresql.user = os.environ["AFTERIMAGE_PG_USER"]
-    if os.environ.get("AFTERIMAGE_PG_PASSWORD"):
-        config.postgresql.password = os.environ["AFTERIMAGE_PG_PASSWORD"]
+
+    # PostgreSQL password - try environment first, then bashrc
+    pg_password = os.environ.get("AFTERIMAGE_PG_PASSWORD")
+    if not pg_password:
+        bashrc_path = Path.home() / ".bashrc"
+        if bashrc_path.exists():
+            try:
+                with open(bashrc_path, 'r') as f:
+                    for line in f:
+                        if line.strip().startswith('export AFTERIMAGE_PG_PASSWORD='):
+                            pg_password = line.split('=', 1)[1].strip().strip('"').strip("'")
+                            break
+            except Exception:
+                pass
+    if pg_password:
+        config.postgresql.password = pg_password
 
     # Embeddings
     if os.environ.get("AFTERIMAGE_EMBEDDING_MODEL"):
