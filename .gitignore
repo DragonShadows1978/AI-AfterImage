@@ -38,3 +38,5 @@ logs/
 .coverage
 htmlcov/
 launch.txt
+# Developer Mode Marker
+.dev_mode
