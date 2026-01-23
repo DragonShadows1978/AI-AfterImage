@@ -3,13 +3,17 @@ Code Filter: Determines if a file is "code" vs artifacts.
 
 Uses extension whitelists/blacklists and path patterns to decide
 whether a file should be stored in the knowledge base.
+
+Enhanced in v0.4.0 with optional language detection support.
 """
 
 import os
 import re
 from pathlib import Path
-from typing import List, Set, Optional
+from typing import List, Set, Optional, Union
 import yaml
+
+from .language_detection import LanguageDetector, LanguageResult
 
 
 # Extensionless files that are commonly code (by exact filename)
@@ -308,33 +312,56 @@ class CodeFilter:
         else:
             self.extensionless_code_files = EXTENSIONLESS_CODE_FILES.copy()
 
-    def is_code(self, file_path: str, content: Optional[str] = None) -> bool:
+    def is_code(
+        self,
+        file_path: str,
+        content: Optional[str] = None,
+        return_language: bool = False,
+    ) -> Union[bool, LanguageResult]:
         """
         Determine if a file path represents code.
 
         Args:
             file_path: Path to the file
             content: Optional file content for heuristic analysis
+            return_language: If True, returns LanguageResult instead of bool
 
         Returns:
-            True if the file should be considered code
+            bool if return_language=False (default), LanguageResult if return_language=True
         """
         path = Path(file_path)
         name = path.name
+
+        # Helper to return result in correct format
+        def _result(is_code: bool, lang_result: Optional[LanguageResult] = None):
+            if return_language:
+                if lang_result:
+                    return lang_result
+                return LanguageResult(
+                    is_code=is_code,
+                    language=None,
+                    confidence=1.0 if is_code else 0.0,
+                    detection_method="filter",
+                )
+            return is_code
 
         # Check skip paths first
         path_str = str(file_path)
         for skip_pattern in self.skip_paths:
             if skip_pattern in path_str:
-                return False
+                return _result(False)
 
         # Check for minified files before other extension checks
         if ".min." in name:
-            return False
+            return _result(False)
 
         # Check for extensionless code files (Makefile, Dockerfile, etc.)
         if name in self.extensionless_code_files:
-            return True
+            if return_language and content:
+                detector = LanguageDetector()
+                lang_result = detector.detect(content, file_path=file_path)
+                return lang_result
+            return _result(True)
 
         # Get extension (handle multiple dots like .test.js)
         ext = self._get_extension(path)
@@ -342,18 +369,25 @@ class CodeFilter:
         # Check explicit skip list - no heuristic override for skip extensions
         # Text files (.txt) are documentation by definition, even if they contain code examples
         if ext in self.skip_extensions:
-            return False
+            return _result(False)
 
         # Check explicit code list
         if ext in self.code_extensions:
-            return True
+            if return_language and content:
+                detector = LanguageDetector()
+                lang_result = detector.detect(content, file_path=file_path)
+                return lang_result
+            return _result(True)
 
-        # Unknown extension - use heuristics if content provided
+        # Unknown extension - use language detection if content provided
         if content is not None:
+            if return_language:
+                detector = LanguageDetector()
+                return detector.detect(content, file_path=file_path)
             return self._content_heuristics(content)
 
         # Unknown extension and no content - skip to be safe
-        return False
+        return _result(False)
 
     def _get_extension(self, path: Path) -> str:
         """Get file extension, handling special cases."""
@@ -517,3 +551,24 @@ class CodeFilter:
             "skip_paths": self.skip_paths,
             "extensionless_code_files": sorted(self.extensionless_code_files),
         }
+
+    def detect_language(
+        self,
+        file_path: str,
+        content: Optional[str] = None
+    ) -> LanguageResult:
+        """
+        Detect the programming language of a file.
+
+        This is a direct method for language detection, bypassing
+        the is_code filtering logic.
+
+        Args:
+            file_path: Path to the file
+            content: Optional file content for analysis
+
+        Returns:
+            LanguageResult with detection details
+        """
+        detector = LanguageDetector()
+        return detector.detect(content or "", file_path=file_path)
