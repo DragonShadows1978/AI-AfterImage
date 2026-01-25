@@ -1,13 +1,13 @@
 Metadata-Version: 2.2
 Name: ai-afterimage
-Version: 0.3.1
+Version: 0.5.1
 Summary: Episodic memory for Claude Code - persistent memory of code written across sessions with churn tracking
 Author-email: DragonShadows1978 <noreply@afterimage.dev>
 License: MIT
 Project-URL: Homepage, https://github.com/DragonShadows1978/AI-AfterImage
 Project-URL: Repository, https://github.com/DragonShadows1978/AI-AfterImage
 Project-URL: Issues, https://github.com/DragonShadows1978/AI-AfterImage/issues
-Keywords: claude,claude-code,memory,embeddings,ai,coding-assistant,semantic-search,postgresql,pgvector
+Keywords: claude,claude-code,memory,embeddings,ai,coding-assistant,semantic-search,postgresql,pgvector,ast,tree-sitter,language-detection,go-to-definition,semantic-index
 Classifier: Development Status :: 4 - Beta
 Classifier: Intended Audience :: Developers
 Classifier: Operating System :: OS Independent
@@ -38,8 +38,17 @@ Requires-Dist: pytest-asyncio>=0.21.0; extra == "dev"
 Requires-Dist: black>=23.0; extra == "dev"
 Requires-Dist: ruff>=0.1.0; extra == "dev"
 Requires-Dist: mypy>=1.0; extra == "dev"
+Provides-Extra: ast
+Requires-Dist: tree-sitter>=0.23.0; extra == "ast"
+Requires-Dist: tree-sitter-python>=0.23.0; extra == "ast"
+Requires-Dist: tree-sitter-javascript>=0.23.0; extra == "ast"
+Requires-Dist: tree-sitter-typescript>=0.23.0; extra == "ast"
+Requires-Dist: tree-sitter-rust>=0.23.0; extra == "ast"
+Requires-Dist: tree-sitter-go>=0.23.0; extra == "ast"
+Requires-Dist: tree-sitter-c>=0.23.0; extra == "ast"
+Requires-Dist: tree-sitter-cpp>=0.23.0; extra == "ast"
 Provides-Extra: all
-Requires-Dist: ai-afterimage[dev,embeddings,postgresql]; extra == "all"
+Requires-Dist: ai-afterimage[ast,dev,embeddings,postgresql]; extra == "all"
 
 # AI-AfterImage
 
@@ -108,6 +117,39 @@ context
 - CLI for search and management
 - **v0.2.1**: Optional PostgreSQL backend with pgvector
 - **v0.3.0**: Semantic Chunking for smarter context injection
+- **v0.4.0**: Config enhancement for PostgreSQL password fallback
+- **v0.5.0**: Code Intelligence - language detection, AST parsing, semantic index
+
+## Code Intelligence (v0.5.0)
+
+AfterImage now has semantic code understanding - not just text embeddings.
+
+**Language Detection**
+- Pattern-based detection for 20+ programming languages
+- Confidence scoring for ambiguous files
+- Polyglot file support (HTML with embedded JS/CSS)
+- Handles extensionless scripts (shebangs, etc.)
+
+**AST Parsing (tree-sitter based)**
+- Multi-language support: Python, JavaScript/TypeScript, Rust, C, Go
+- Incremental parsing for large files
+- Semantic extraction: functions, classes, imports, dependencies
+
+**Semantic Index**
+- Symbol tables with scope-aware resolution
+- Go-to-definition across files
+- Find all references
+- Call graph generation
+- Hover information provider
+- Basic type inference
+
+Install with code intelligence features:
+
+```bash
+pip install ai-afterimage[ast]
+```
+
+See [docs/code_intelligence.md](docs/code_intelligence.md) for full documentation.
 
 ## Semantic Chunking (v0.3.0)
 
@@ -513,18 +555,33 @@ AI-AfterImage/
 |   +-- inject.py          # Context injection formatting
 |   +-- extract.py         # Transcript parsing
 |   +-- cli.py             # Command line interface
+|   +-- language_detection/  # v0.5.0: Language detection
+|   |   +-- detector.py      # Content-based language identification
+|   |   +-- signatures.py    # Language patterns and confidence scoring
+|   +-- ast_parser/          # v0.5.0: Tree-sitter AST parsing
+|   |   +-- parser.py        # Parser factory
+|   |   +-- python_parser.py
+|   |   +-- javascript_parser.py
+|   |   +-- rust_parser.py
+|   |   +-- go_parser.py
+|   |   +-- c_parser.py
+|   +-- semantic_index/      # v0.5.0: IDE-like code intelligence
+|       +-- semantic_index.py     # Main coordinator
+|       +-- definition_resolver.py # Go-to-definition
+|       +-- references_finder.py   # Find all references
+|       +-- hover_provider.py      # Hover info
+|       +-- symbol_table.py        # Per-file symbols
+|       +-- call_graph.py          # Call relationships
+|       +-- type_inference.py      # Basic type propagation
 +-- hooks/
 |   +-- README.md          # Hook installation guide
 |   +-- afterimage_hook.py # Claude Code hook script
++-- docs/
+|   +-- code_intelligence.md  # Code intelligence documentation
+|   +-- semantic_chunking.md  # Semantic chunking documentation
+|   +-- churn_tracking.md     # Churn tracking documentation
 +-- tests/
-|   +-- test_kb.py
-|   +-- test_filter.py
-|   +-- test_search.py
-|   +-- test_extract.py
-|   +-- test_inject.py
-|   +-- test_integration.py
 +-- pyproject.toml
-+-- setup.py
 +-- README.md
 +-- LICENSE
 ```
@@ -807,11 +864,13 @@ MIT License - See [LICENSE](LICENSE) for details.
 - [x] Context injection
 - [x] CLI commands
 - [x] Claude Code hooks
-- [x] Test suite (163 tests, 88% coverage)
+- [x] Test suite (233/234 tests, 95.3% pass rate)
 - [x] Offline mode (works without network after model download)
 - [x] **v0.2.0**: PostgreSQL backend with pgvector (optional)
 - [x] **v0.2.0**: Graceful fallback from PostgreSQL to SQLite
 - [x] **v0.2.0**: Environment variable configuration
+- [x] **v0.4.0**: Config enhancement for PostgreSQL password fallback from ~/.bashrc
+- [x] **v0.5.0**: Code Intelligence (language detection, AST parsing, semantic index)
 
 ## Roadmap
 
@@ -820,6 +879,7 @@ Planned features for upcoming releases:
 - [ ] **Background Embedding Daemon** - Async embedding generation service with systemd/launchd integration, GPU acceleration, and progress monitoring
 - [x] **Semantic Code Chunking** (v0.3.0) - Break code into meaningful units (functions, classes, blocks) instead of raw files for more precise context injection
 - [x] **Churn Tracking** (v0.3.0) - Detect repeatedly modified code, distinguish iteration from bug-chasing, surface stability metrics
+- [x] **Code Intelligence** (v0.5.0) - Language detection, tree-sitter AST parsing, semantic index with go-to-definition and find-references
 - [ ] **Code Pattern Clustering** - Automatic grouping of related code using HDBSCAN, with 2D/3D visualization via UMAP
 - [ ] **Search Quality Improvements** - Embedding validation, relevance feedback loop, drift detection
 - [ ] **VS Code Support** - MCP server architecture for VS Code Claude extension compatibility
@@ -831,6 +891,10 @@ Contributions welcome! Please:
 2. Create a feature branch
 3. Add tests for new functionality
 4. Submit a pull request
+
+## Related Projects
+
+- **[AI-AtlasForge](https://github.com/DragonShadows1978/AI-AtlasForge)** - Autonomous AI research and development platform. Run multi-day missions, accumulate cross-session knowledge, and build software autonomously. AfterImage provides the code memory that persists across AtlasForge missions.
 
 ## Name
 

@@ -19,9 +19,9 @@ from .retry import RetryManager
 from .rate_limiter import RateLimiter
 
 # Add AfterImage paths
+# Note: With pip install -e, the package is already in sys.path.
+# This fallback is for standalone installations.
 AFTERIMAGE_SEARCH_PATHS = [
-    str(Path.home() / "mini-mind-v2" / "workspace" / "AI-AfterImage"),
-    str(Path.home() / "mini-mind-v2" / "workspace" / "afterimage"),
     str(Path.home() / "AI-AfterImage"),
 ]
 

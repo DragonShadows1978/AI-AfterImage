@@ -76,7 +76,7 @@ SemanticChunkingConfig (config.py) - YAML + env var configuration
 Run tests with:
 
 ```bash
-cd /home/vader/mini-mind-v2/workspace/AI-AfterImage
+cd /home/vader/AI-AfterImage
 python3 -m pytest tests/test_semantic_chunking_integration.py -v
 ```
 

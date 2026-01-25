@@ -46,11 +46,10 @@ AFTERIMAGE_PATH = os.environ.get(
 )
 
 # Search paths for the afterimage package (in priority order)
+# Note: With pip install -e, the package is already in sys.path.
+# These fallbacks are for standalone installations without pip.
 SEARCH_PATHS = [
     AFTERIMAGE_PATH,
-    str(Path.home() / "Shared" / "AI-AfterImage"),  # Shared location
-    str(Path.home() / "mini-mind-v2" / "workspace" / "afterimage"),  # Dev workspace
-    str(Path.home() / "mini-mind-v2" / "workspace" / "AI-AfterImage"),  # Alt dev location
     str(Path.home() / ".local" / "lib" / "afterimage"),
     "/usr/local/lib/afterimage",
 ]

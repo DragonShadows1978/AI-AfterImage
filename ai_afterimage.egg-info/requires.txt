@@ -1,7 +1,17 @@
 pyyaml>=6.0
 
 [all]
-ai-afterimage[dev,embeddings,postgresql]
+ai-afterimage[ast,dev,embeddings,postgresql]
+
+[ast]
+tree-sitter>=0.23.0
+tree-sitter-python>=0.23.0
+tree-sitter-javascript>=0.23.0
+tree-sitter-typescript>=0.23.0
+tree-sitter-rust>=0.23.0
+tree-sitter-go>=0.23.0
+tree-sitter-c>=0.23.0
+tree-sitter-cpp>=0.23.0
 
 [dev]
 pytest>=7.0

@@ -15,7 +15,7 @@ Environment=PYTHONUNBUFFERED=1
 EnvironmentFile=-/home/vader/.afterimage/embedder.env
 
 # Working directory
-WorkingDirectory=/home/vader/mini-mind-v2/missions/mission_bab56af4/workspace
+WorkingDirectory=/home/vader/AI-AfterImage
 
 # Main process
 ExecStart=/usr/bin/python3 -m afterimage_embedder.daemon

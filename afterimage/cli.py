@@ -403,7 +403,6 @@ embeddings:
         # Try common locations
         for loc in [
             Path.home() / "AI-AfterImage" / "hooks" / "afterimage_hook.py",
-            Path.home() / "mini-mind-v2" / "workspace" / "AI-AfterImage" / "hooks" / "afterimage_hook.py",
             Path("/usr/local/lib/afterimage/hooks/afterimage_hook.py"),
         ]:
             if loc.exists():
@@ -788,9 +787,10 @@ def main():
         prog="afterimage",
         description="AI-AfterImage: Episodic memory for Claude Code"
     )
+    from importlib.metadata import version as pkg_version
     parser.add_argument(
         "--version", action="version",
-        version="%(prog)s 0.3.0"
+        version=f"%(prog)s {pkg_version('ai-afterimage')}"
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
