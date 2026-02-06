@@ -67,6 +67,20 @@ context
 - **v0.3.0**: Semantic Chunking for smarter context injection
 - **v0.4.0**: Config enhancement for PostgreSQL password fallback
 - **v0.5.0**: Code Intelligence - language detection, AST parsing, semantic index
+- **v0.6.0**: Codex transcript support - session_meta IDs, apply_patch parsing, multi-format extraction
+
+## Recent Changes
+
+### v0.6.0 (2026-02-06)
+- Added OpenAI Codex transcript support in the extract module
+- Support for `session_meta` session ID extraction
+- Support for `response_item` envelope format (`function_call` + `custom_tool_call`)
+- `apply_patch` unified diff parsing for file additions and updates
+- Comprehensive tests for all new Codex transcript formats
+
+### v0.5.2 (2026-02-06)
+- Fixed CLI version to use package metadata
+- Updated README for Code Intelligence release
 
 ## Code Intelligence (v0.5.0)
 
@@ -819,6 +833,7 @@ MIT License - See [LICENSE](LICENSE) for details.
 - [x] **v0.2.0**: Environment variable configuration
 - [x] **v0.4.0**: Config enhancement for PostgreSQL password fallback from ~/.bashrc
 - [x] **v0.5.0**: Code Intelligence (language detection, AST parsing, semantic index)
+- [x] **v0.6.0**: Codex transcript support (session_meta, apply_patch, multi-format)
 
 ## Roadmap
 
