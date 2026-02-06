@@ -362,3 +362,68 @@ class TestTranscriptExtractor:
         assert changes == []
 
         file_path.unlink()
+
+    def test_codex_session_meta_session_id(self, extractor, temp_jsonl):
+        """Test session ID extraction from Codex session_meta payload."""
+        entries = [
+            {
+                "type": "session_meta",
+                "payload": {"id": "codex_session_abc123"}
+            },
+            {
+                "type": "tool_use",
+                "name": "Write",
+                "input": {"file_path": "/test.py", "content": "print('ok')"}
+            }
+        ]
+
+        file_path = temp_jsonl(entries)
+        changes = extractor.extract_from_file(file_path)
+
+        assert len(changes) == 1
+        assert changes[0].session_id == "codex_session_abc123"
+
+        file_path.unlink()
+
+    def test_codex_apply_patch_custom_tool_call(self, extractor, temp_jsonl):
+        """Test extraction from Codex custom_tool_call apply_patch payload."""
+        patch = """*** Begin Patch
+*** Update File: /repo/app.py
+@@
+-def old():
+-    pass
++def new():
++    return 1
+*** Add File: /repo/new_module.py
++def hello():
++    return "hi"
+*** End Patch
+"""
+        entries = [
+            {"role": "user", "content": "Update app and add helper module"},
+            {
+                "type": "response_item",
+                "payload": {
+                    "type": "custom_tool_call",
+                    "name": "apply_patch",
+                    "input": patch,
+                }
+            }
+        ]
+
+        file_path = temp_jsonl(entries)
+        changes = extractor.extract_from_file(file_path)
+
+        assert len(changes) == 2
+
+        app_change = next(c for c in changes if c.file_path == "/repo/app.py")
+        assert app_change.tool_type == "Edit"
+        assert "def new()" in app_change.new_code
+        assert "def old()" in (app_change.old_code or "")
+
+        new_file_change = next(c for c in changes if c.file_path == "/repo/new_module.py")
+        assert new_file_change.tool_type == "Write"
+        assert "def hello()" in new_file_change.new_code
+        assert new_file_change.old_code is None
+
+        file_path.unlink()

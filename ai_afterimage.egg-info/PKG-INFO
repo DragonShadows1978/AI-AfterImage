@@ -1,6 +1,6 @@
 Metadata-Version: 2.2
 Name: ai-afterimage
-Version: 0.5.1
+Version: 0.5.2
 Summary: Episodic memory for Claude Code - persistent memory of code written across sessions with churn tracking
 Author-email: DragonShadows1978 <noreply@afterimage.dev>
 License: MIT

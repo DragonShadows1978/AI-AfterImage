@@ -1,7 +1,7 @@
 """
-Transcript Extractor: Parses Claude Code JSONL transcripts.
+Transcript Extractor: Parses Claude/Codex JSONL transcripts.
 
-Extracts Write/Edit tool calls along with surrounding context
+Extracts code-changing tool calls along with surrounding context
 for storage in the knowledge base.
 """
 
@@ -10,7 +10,7 @@ import os
 import re
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import List, Dict, Any, Optional, Iterator, Tuple
+from typing import List, Dict, Any, Optional, Iterator, Tuple, Union
 from dataclasses import dataclass
 
 
@@ -108,11 +108,11 @@ class TranscriptExtractor:
 
         changes = []
         for i, entry in enumerate(entries):
-            code_change = self._extract_code_change(
+            code_changes = self._extract_code_changes(
                 entry, entries, i, session_id
             )
-            if code_change:
-                changes.append(code_change)
+            if code_changes:
+                changes.extend(code_changes)
 
         return changes
 
@@ -171,49 +171,62 @@ class TranscriptExtractor:
                 return first["session_id"]
             if "sessionId" in first:
                 return first["sessionId"]
+            # Codex format: {"type":"session_meta","payload":{"id":"..."}}
+            if first.get("type") == "session_meta":
+                payload = first.get("payload", {})
+                if isinstance(payload, dict):
+                    session_id = payload.get("id")
+                    if session_id:
+                        return session_id
 
         # Fall back to file name - ensure file_path is a Path object
         if isinstance(file_path, str):
             file_path = Path(file_path)
         return file_path.stem
 
-    def _extract_code_change(
+    def _extract_code_changes(
         self,
         entry: Dict[str, Any],
         all_entries: List[Dict[str, Any]],
         index: int,
         session_id: str
-    ) -> Optional[CodeChange]:
+    ) -> List[CodeChange]:
         """
-        Extract a code change from a transcript entry if applicable.
+        Extract code changes from a transcript entry if applicable.
 
-        Returns None if entry is not a Write/Edit tool call.
+        Returns an empty list if entry has no supported code changes.
         """
         # Check if this is a tool use entry
         tool_info = self._get_tool_info(entry)
         if not tool_info:
-            return None
+            return []
 
         tool_name, tool_input = tool_info
 
-        # Only process Write and Edit tools
-        if tool_name not in ("Write", "Edit"):
-            return None
+        # Process classic Write/Edit tools
+        if tool_name in ("Write", "Edit"):
+            if tool_name == "Write":
+                change = self._extract_write_change(
+                    entry, tool_input, all_entries, index, session_id
+                )
+            else:  # Edit
+                change = self._extract_edit_change(
+                    entry, tool_input, all_entries, index, session_id
+                )
+            return [change] if change else []
 
-        # Extract code change details based on tool type
-        if tool_name == "Write":
-            return self._extract_write_change(
+        # Process Codex-style apply_patch tool calls
+        if tool_name == "apply_patch":
+            return self._extract_apply_patch_changes(
                 entry, tool_input, all_entries, index, session_id
             )
-        else:  # Edit
-            return self._extract_edit_change(
-                entry, tool_input, all_entries, index, session_id
-            )
+
+        return []
 
     def _get_tool_info(
         self,
         entry: Dict[str, Any]
-    ) -> Optional[Tuple[str, Dict[str, Any]]]:
+    ) -> Optional[Tuple[str, Union[Dict[str, Any], str]]]:
         """
         Extract tool name and input from various transcript formats.
 
@@ -246,6 +259,26 @@ class TranscriptExtractor:
         # Format 4: {"toolName": "...", "toolInput": {...}}
         if "toolName" in entry:
             return entry["toolName"], entry.get("toolInput", {})
+
+        # Format 5: Codex transcript envelope
+        # {"type":"response_item","payload":{"type":"function_call","name":"...","arguments":"{...}"}}
+        # {"type":"response_item","payload":{"type":"custom_tool_call","name":"apply_patch","input":"..."}}
+        if entry.get("type") == "response_item":
+            payload = entry.get("payload", {})
+            if isinstance(payload, dict):
+                payload_type = payload.get("type")
+                tool_name = payload.get("name")
+                if payload_type == "function_call" and tool_name:
+                    args = payload.get("arguments", {})
+                    if isinstance(args, str):
+                        try:
+                            args = json.loads(args)
+                        except json.JSONDecodeError:
+                            # Keep raw string for tools that pass plain text
+                            pass
+                    return tool_name, args
+                if payload_type == "custom_tool_call" and tool_name:
+                    return tool_name, payload.get("input", {})
 
         return None
 
@@ -307,6 +340,112 @@ class TranscriptExtractor:
             session_id=session_id,
             raw_entry=entry
         )
+
+    def _extract_apply_patch_changes(
+        self,
+        entry: Dict[str, Any],
+        tool_input: Union[Dict[str, Any], str],
+        all_entries: List[Dict[str, Any]],
+        index: int,
+        session_id: str
+    ) -> List[CodeChange]:
+        """
+        Extract file updates from an apply_patch payload.
+
+        For update hunks, added lines are stored as new_code and removed lines
+        as old_code. This preserves patch intent even when full-file content is
+        not present in transcripts.
+        """
+        if isinstance(tool_input, dict):
+            patch_text = (
+                tool_input.get("patch")
+                or tool_input.get("input")
+                or tool_input.get("text")
+                or ""
+            )
+        elif isinstance(tool_input, str):
+            patch_text = tool_input
+        else:
+            patch_text = ""
+
+        if not patch_text:
+            return []
+
+        context = self._get_context(all_entries, index)
+        timestamp = self._get_timestamp(entry)
+
+        changes: List[CodeChange] = []
+        current_file: Optional[str] = None
+        current_mode: Optional[str] = None  # "add" or "update"
+        added_lines: List[str] = []
+        removed_lines: List[str] = []
+
+        def flush_current() -> None:
+            nonlocal current_file, current_mode, added_lines, removed_lines
+            if not current_file:
+                return
+
+            new_code = "\n".join(added_lines).strip("\n")
+            old_code = "\n".join(removed_lines).strip("\n") or None
+
+            # Skip delete-only or metadata-only hunks for memory ingestion.
+            if not new_code:
+                return
+
+            tool_type = "Write" if current_mode == "add" else "Edit"
+            changes.append(
+                CodeChange(
+                    file_path=current_file,
+                    new_code=new_code,
+                    old_code=old_code,
+                    tool_type=tool_type,
+                    context=context,
+                    timestamp=timestamp,
+                    session_id=session_id,
+                    raw_entry=entry,
+                )
+            )
+
+        for raw_line in patch_text.splitlines():
+            line = raw_line.rstrip("\n")
+
+            if line.startswith("*** Update File: "):
+                flush_current()
+                current_file = line[len("*** Update File: "):].strip()
+                current_mode = "update"
+                added_lines = []
+                removed_lines = []
+                continue
+
+            if line.startswith("*** Add File: "):
+                flush_current()
+                current_file = line[len("*** Add File: "):].strip()
+                current_mode = "add"
+                added_lines = []
+                removed_lines = []
+                continue
+
+            if line.startswith("*** Delete File: "):
+                flush_current()
+                current_file = None
+                current_mode = None
+                added_lines = []
+                removed_lines = []
+                continue
+
+            if not current_file:
+                continue
+
+            if line.startswith("@@") or line.startswith("*** End of File"):
+                continue
+
+            if line.startswith("+") and not line.startswith("+++"):
+                added_lines.append(line[1:])
+            elif line.startswith("-") and not line.startswith("---"):
+                removed_lines.append(line[1:])
+
+        flush_current()
+        return changes
 
     def _get_context(
         self,
