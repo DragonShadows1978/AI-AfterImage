@@ -10,6 +10,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - CLI `--version` now dynamically reads from package metadata instead of hardcoded value
 
+## [0.7.0] - 2026-03-02
+
+### Added
+- PostgreSQL backend with pgvector support as primary storage option
+- Hook chmod fix — hooks now correctly marked executable on fresh installs
+- pre_tool_use.py lock file compatibility — handles both plain PID and JSON lock formats
+- Improved churn tier tracking and stability classification
+
+### Fixed
+- PostgreSQL password authentication via AFTERIMAGE_PG_PASSWORD env variable
+- Hook execution failures on new machine deployments due to missing execute bit
+- Lock file parsing crash when conductor writes plain integer PID
+
 ## [Unreleased]
 
 ### Added

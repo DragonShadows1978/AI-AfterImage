@@ -71,6 +71,10 @@ def should_warn_gold_tier(
     Gold-tier files are stable and rarely modified. A warning helps
     prevent accidental changes to well-tested, stable code.
 
+    New files (first_edit within the last 24h) are NOT warned — they
+    have no edit history yet and only appear Gold-tier because 0 edits
+    falls in the 0-2 range. Stability must be earned over time.
+
     Args:
         stats: File churn statistics
         current_session_id: Current Claude session ID
@@ -82,7 +86,25 @@ def should_warn_gold_tier(
     if stats.tier != ChurnTier.GOLD:
         return False
 
-    # Always warn for gold tier files
+    # Don't warn on files with no history at all (never tracked in the KB).
+    # first_edit=None means this file is brand new — zero edits cannot indicate
+    # stability, which must be earned over time. The 0-edit count lands in the
+    # Gold range (0-2) purely because there is no data, not because the file is
+    # stable. Blocking writes to a file that has never been written is incorrect.
+    if stats.first_edit is None:
+        return False
+
+    # Don't warn on brand-new files — they have no history yet
+    if stats.first_edit:
+        try:
+            first_edit_dt = datetime.fromisoformat(stats.first_edit)
+            if first_edit_dt.tzinfo is None:
+                first_edit_dt = first_edit_dt.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) - first_edit_dt < timedelta(hours=24):
+                return False
+        except (ValueError, TypeError):
+            pass
+
     return True
 
 
