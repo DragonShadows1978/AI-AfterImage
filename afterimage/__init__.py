@@ -16,7 +16,11 @@ Version 0.2.0 adds PostgreSQL backend with pgvector for concurrent
 write support in multi-agent AtlasForge workflows.
 """
 
-__version__ = "0.4.0"
+try:
+    from importlib.metadata import version as _pkg_version
+    __version__ = _pkg_version("ai-afterimage")
+except Exception:
+    __version__ = "0.7.0"
 
 from .kb import KnowledgeBase
 from .search import HybridSearch, SearchResult

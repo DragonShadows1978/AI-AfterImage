@@ -50,7 +50,7 @@ class ScoredSnippet:
     # Individual scores
     recency_score: float = 0.0
     proximity_score: float = 0.0
-    semantic_score: float = 0.0
+    semantic_score: float = 0.5
     project_score: float = 0.0
 
     # Combined score
@@ -178,12 +178,14 @@ class RelevanceScorer:
         scored.proximity_score = self._compute_proximity_score(scored.file_path)
         scored.project_score = self._compute_project_score(scored.file_path)
 
-        if "semantic_score" in snippet:
+        if "semantic_score" in snippet and snippet["semantic_score"] is not None:
             scored.semantic_score = snippet["semantic_score"]
         elif query_embedding and "embedding" in snippet:
             scored.semantic_score = self._compute_semantic_score(
                 query_embedding, snippet["embedding"]
             )
+        else:
+            scored.semantic_score = 0.5
 
         scored.relevance_score = self._combine_scores(scored)
         return scored

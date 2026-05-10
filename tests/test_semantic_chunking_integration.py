@@ -665,6 +665,9 @@ class TestRealDatabaseIntegration:
     @pytest.fixture
     def real_db_path(self):
         """Get path to real AfterImage database if it exists."""
+        if os.environ.get("AFTERIMAGE_RUN_REAL_DB_TESTS") != "1":
+            pytest.skip("Set AFTERIMAGE_RUN_REAL_DB_TESTS=1 to run real database tests")
+
         paths = [
             Path("/home/vader/Shared/AI-AfterImage/memory.db"),
             Path.home() / ".afterimage" / "memory.db",

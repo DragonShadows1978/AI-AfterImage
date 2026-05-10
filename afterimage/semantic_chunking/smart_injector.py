@@ -11,11 +11,11 @@ This is the main integration module that combines:
 Part of AfterImage Semantic Chunking v0.3.0.
 """
 
-from typing import List, Optional, Dict, Any, Tuple
+from typing import List, Optional, Dict, Any
 from dataclasses import dataclass
 from pathlib import Path
 
-from .chunker import SemanticChunker, CodeChunk, ChunkType
+from .chunker import SemanticChunker
 from .token_budget import TokenBudgetManager, TokenBudgetConfig, TokenBudgetTier
 from .relevance_scorer import RelevanceScorer, ScoringConfig, ScoredSnippet
 from .snippet_summarizer import (
@@ -186,16 +186,19 @@ class SmartContextInjector:
             [self._snippet_to_dict(s) for s in chunked_results],
             query_embedding
         )
+        output_candidates = scored_snippets[
+            :max(self.config.max_results * 4, self.config.max_individual_snippets)
+        ]
 
         # Step 3: Summarize if enabled and many results
-        if self.config.summary_enabled and len(scored_snippets) > self.config.max_individual_snippets:
+        if self.config.summary_enabled and len(output_candidates) > self.config.max_individual_snippets:
             individual, groups = self.summarizer.summarize(
-                scored_snippets,
+                output_candidates,
                 max_output=self.config.max_results
             )
             was_summarized = len(groups) > 0
         else:
-            individual = scored_snippets[:self.config.max_results]
+            individual = output_candidates[:self.config.max_results]
             groups = []
             was_summarized = False
 
@@ -283,7 +286,7 @@ class SmartContextInjector:
                     context=context,
                     chunk_name=chunk.name,
                     chunk_type=chunk.chunk_type.value,
-                    semantic_score=result.get("semantic_score", 0.0)
+                    semantic_score=result.get("semantic_score", 0.5)
                 )
                 all_chunks.append(snippet)
 
@@ -300,7 +303,7 @@ class SmartContextInjector:
                 file_path=r.get("file_path", ""),
                 timestamp=r.get("timestamp", ""),
                 context=r.get("context", ""),
-                semantic_score=r.get("semantic_score", 0.0)
+                semantic_score=r.get("semantic_score", 0.5)
             )
             for r in raw_results
         ]

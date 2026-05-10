@@ -6,9 +6,9 @@ and environment variables.
 """
 
 import os
-from pathlib import Path
-from typing import Optional, Dict, Any, Union
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Dict, Optional
 
 import yaml
 
@@ -67,6 +67,12 @@ class FilterConfig:
 
 
 @dataclass
+class HookConfig:
+    """Claude Code hook configuration."""
+    seen_write_key: str = "file"  # Options: file, content, session_file
+
+
+@dataclass
 class AfterImageConfig:
     """Main AfterImage configuration."""
     backend: str = "sqlite"  # "sqlite" or "postgresql"
@@ -75,6 +81,7 @@ class AfterImageConfig:
     search: SearchConfig = field(default_factory=SearchConfig)
     embeddings: EmbeddingsConfig = field(default_factory=EmbeddingsConfig)
     filter: FilterConfig = field(default_factory=FilterConfig)
+    hook: HookConfig = field(default_factory=HookConfig)
 
 
 def get_config_path() -> Path:
@@ -178,6 +185,12 @@ def _merge_config(config: AfterImageConfig, data: Dict[str, Any]) -> AfterImageC
         if "skip_paths" in flt:
             config.filter.skip_paths = flt["skip_paths"]
 
+    # Hook settings
+    if "hook" in data:
+        hook = data["hook"]
+        if "seen_write_key" in hook:
+            config.hook.seen_write_key = str(hook["seen_write_key"])
+
     return config
 
 
@@ -224,6 +237,10 @@ def _apply_env_overrides(config: AfterImageConfig) -> AfterImageConfig:
         config.embeddings.model = os.environ["AFTERIMAGE_EMBEDDING_MODEL"]
     if os.environ.get("AFTERIMAGE_EMBEDDING_DEVICE"):
         config.embeddings.device = os.environ["AFTERIMAGE_EMBEDDING_DEVICE"]
+
+    # Hook settings
+    if os.environ.get("AFTERIMAGE_HOOK_SEEN_WRITE_KEY"):
+        config.hook.seen_write_key = os.environ["AFTERIMAGE_HOOK_SEEN_WRITE_KEY"]
 
     return config
 
@@ -313,6 +330,13 @@ embeddings:
   model: all-MiniLM-L6-v2
   device: cpu  # or cuda
   embedding_dim: 384
+
+# Hook behavior
+hook:
+  # file: show context once per file until seen-write cache rolls over
+  # content: show context once per unique file/content prefix
+  # session_file: show context once per file per Claude session
+  seen_write_key: file
 """
 
     with open(config_path, "w") as f:

@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import tempfile
+from importlib.metadata import version
 from pathlib import Path
 from unittest.mock import patch
 
@@ -508,7 +509,7 @@ class TestMain:
 
         assert exc_info.value.code == 0
         captured = capsys.readouterr()
-        assert "0.3.0" in captured.out
+        assert version("ai-afterimage") in captured.out
 
     def test_main_unknown_command(self, monkeypatch, capsys):
         """Test main with unknown command."""
@@ -574,3 +575,16 @@ class TestMain:
         result = main()
 
         assert result == 0
+
+    def test_main_doctor_command_json(self, temp_home, monkeypatch, capsys):
+        """Test doctor command emits machine-readable diagnostics."""
+        monkeypatch.setattr(sys, "argv", ["afterimage", "doctor", "--json"])
+
+        result = main()
+
+        assert result == 0
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert data["config"]["backend"] == "sqlite"
+        assert data["config"]["hook_seen_write_key"] == "file"
+        assert "optional_dependencies" in data

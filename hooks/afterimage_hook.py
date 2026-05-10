@@ -25,15 +25,16 @@ v0.2.0 Changes:
 The deny-then-allow pattern ensures Claude sees relevant past code BEFORE writing.
 """
 
+import atexit
+import hashlib
+import importlib.util
 import json
-import sys
 import os
 import re
-import hashlib
-import atexit
-from pathlib import Path
+import sys
 from datetime import datetime, timezone
-from typing import Optional, Any
+from pathlib import Path
+from typing import Optional
 
 # =============================================================================
 # CONFIGURATION
@@ -204,10 +205,7 @@ def get_backend():
 
 def _create_postgresql_backend(config):
     """Create and initialize PostgreSQL backend."""
-    try:
-        # Import psycopg to check availability
-        import psycopg
-    except ImportError:
+    if importlib.util.find_spec("psycopg") is None:
         raise ImportError("psycopg not installed")
 
     from afterimage.storage import SyncPostgreSQLBackend
@@ -255,7 +253,7 @@ def cleanup_backend():
     if _cached_backend is not None:
         try:
             _cached_backend.close()
-        except:
+        except Exception:
             pass
         _cached_backend = None
 
@@ -270,8 +268,31 @@ atexit.register(cleanup_backend)
 
 def get_content_hash(file_path: str, content: str) -> str:
     """Generate hash to identify unique write attempts."""
-    key = f"{file_path}:{content[:500]}"
+    mode = get_seen_write_key_mode()
+    if mode == "content":
+        key = f"{file_path}:{content[:500]}"
+    elif mode == "session_file":
+        key = f"{get_session_id()}:{file_path}"
+    else:
+        key = f"{file_path}"
     return hashlib.md5(key.encode()).hexdigest()[:16]
+
+
+def get_seen_write_key_mode() -> str:
+    """Get how pre-hook seen-write attempts should be keyed."""
+    mode = os.environ.get("AFTERIMAGE_HOOK_SEEN_WRITE_KEY")
+
+    if not mode and _config_module is not None:
+        try:
+            config = _config_module.load_config()
+            mode = getattr(getattr(config, "hook", None), "seen_write_key", None)
+        except Exception:
+            mode = None
+
+    mode = (mode or "file").strip().lower()
+    if mode not in {"file", "content", "session_file"}:
+        return "file"
+    return mode
 
 
 def was_already_shown(content_hash: str) -> bool:
@@ -282,7 +303,7 @@ def was_already_shown(content_hash: str) -> bool:
         seen = SEEN_WRITES_FILE.read_text().strip().split("\n")
         # Keep only recent entries (last 100)
         return content_hash in seen[-100:]
-    except:
+    except Exception:
         return False
 
 
@@ -295,7 +316,7 @@ def mark_as_shown(content_hash: str):
             existing = SEEN_WRITES_FILE.read_text().strip().split("\n")[-99:]
         existing.append(content_hash)
         SEEN_WRITES_FILE.write_text("\n".join(existing))
-    except:
+    except Exception:
         pass
 
 
@@ -538,7 +559,7 @@ def store_code(file_path: str, new_code: str, old_code: Optional[str] = None) ->
             try:
                 embedder = _embedding_generator_class()
                 embedding = embedder.embed_code(new_code, file_path)
-            except:
+            except Exception:
                 pass
 
         kb.store(

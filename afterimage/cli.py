@@ -6,6 +6,7 @@ the knowledge base.
 """
 
 import argparse
+import importlib.util
 import json
 import os
 import shutil
@@ -13,10 +14,9 @@ import stat
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 from .kb import KnowledgeBase
-from .search import HybridSearch, SearchResult
+from .search import HybridSearch
 from .extract import TranscriptExtractor, find_transcript_files
 from .filter import CodeFilter
 from .inject import ContextInjector
@@ -42,7 +42,7 @@ def cmd_search(args):
         print(json.dumps(output, indent=2))
     else:
         injector = ContextInjector()
-        for i, result in enumerate(results, 1):
+        for result in results:
             print(f"\n{'='*60}")
             print(injector.format_single(result))
 
@@ -140,7 +140,7 @@ def cmd_ingest(args):
             print(f"Error processing {file_path}: {e}")
             continue
 
-    print(f"\nIngestion complete:")
+    print("\nIngestion complete:")
     print(f"  Total changes found: {total_changes}")
     print(f"  Code changes: {code_changes}")
     print(f"  Stored in KB: {stored}")
@@ -165,7 +165,7 @@ def cmd_stats(args):
         print(f"Database size:        {_format_bytes(stats['db_size_bytes'])}")
 
         if stats['oldest_entry']:
-            print(f"\nDate range:")
+            print("\nDate range:")
             print(f"  Oldest: {stats['oldest_entry'][:19]}")
             print(f"  Newest: {stats['newest_entry'][:19]}")
 
@@ -286,6 +286,11 @@ filter:
 embeddings:
   model: all-MiniLM-L6-v2
   device: cpu  # or cuda
+
+# Hook behavior
+hook:
+  # Options: file, content, session_file
+  seen_write_key: file
 """
         config_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -377,6 +382,11 @@ filter:
 embeddings:
   model: all-MiniLM-L6-v2
   device: cpu  # or cuda
+
+# Hook behavior
+hook:
+  # Options: file, content, session_file
+  seen_write_key: file
 """
         with open(config_path, "w") as f:
             f.write(default_config)
@@ -396,7 +406,7 @@ embeddings:
         candidate = package_dir / "hooks" / "afterimage_hook.py"
         if candidate.exists():
             hook_source = candidate
-    except:
+    except Exception:
         pass
 
     if not hook_source:
@@ -500,7 +510,7 @@ except ImportError:
         os.environ["HF_HOME"] = str(afterimage_dir / "models")
         from sentence_transformers import SentenceTransformer
         print("  Downloading all-MiniLM-L6-v2 (~90MB)...")
-        model = SentenceTransformer("all-MiniLM-L6-v2")
+        SentenceTransformer("all-MiniLM-L6-v2")
         print(f"  Model cached to: {afterimage_dir / 'models'}")
     except ImportError:
         print("  Skipped: sentence-transformers not installed")
@@ -672,7 +682,7 @@ def cmd_churn(args):
         if args.functions:
             func_stats = tracker.get_function_stats(file_path)
             if func_stats:
-                print(f"\nFunction-level churn:")
+                print("\nFunction-level churn:")
                 print("-" * 40)
                 for f in func_stats[:10]:
                     change_summary = ", ".join(f.change_types[:3]) if f.change_types else "unknown"
@@ -681,7 +691,7 @@ def cmd_churn(args):
         if args.history:
             history = tracker.get_edit_history(file_path, limit=args.history_limit)
             if history:
-                print(f"\nRecent edit history:")
+                print("\nRecent edit history:")
                 print("-" * 40)
                 for h in history:
                     func_name = f" [{h.function_name}]" if h.function_name else ""
@@ -693,7 +703,7 @@ def cmd_churn(args):
 def cmd_hotspots(args):
     """Show files ranked by churn hotspot score."""
     try:
-        from .churn import ChurnTracker, format_tier_badge
+        from .churn import ChurnTracker
     except ImportError:
         print("Error: Churn tracking module not available")
         return 1
@@ -777,6 +787,100 @@ def cmd_files_by_tier(args):
                 display_path = "..." + display_path[-47:]
 
             print(f"  {stats.edits_last_30d:>3} edits | {display_path}")
+
+    return 0
+
+
+def _module_available(module_name: str) -> bool:
+    """Return whether a module can be imported without importing it."""
+    return importlib.util.find_spec(module_name) is not None
+
+
+def cmd_doctor(args):
+    """Show local AfterImage environment diagnostics."""
+    from .config import get_config_path, load_config
+
+    config_path = get_config_path()
+    config = load_config()
+    sqlite_path = config.sqlite.path.expanduser()
+    hook_path = Path.home() / ".claude" / "hooks" / "afterimage_hook.py"
+    settings_path = Path.home() / ".claude" / "settings.json"
+    model_cache = Path.home() / ".afterimage" / "models" / "models--sentence-transformers--all-MiniLM-L6-v2"
+
+    optional_modules = {
+        "sentence_transformers": _module_available("sentence_transformers"),
+        "tree_sitter": _module_available("tree_sitter"),
+        "tree_sitter_python": _module_available("tree_sitter_python"),
+        "tree_sitter_javascript": _module_available("tree_sitter_javascript"),
+        "tree_sitter_typescript": _module_available("tree_sitter_typescript"),
+        "tree_sitter_rust": _module_available("tree_sitter_rust"),
+        "tree_sitter_go": _module_available("tree_sitter_go"),
+        "tree_sitter_c": _module_available("tree_sitter_c"),
+        "tree_sitter_cpp": _module_available("tree_sitter_cpp"),
+    }
+
+    settings_has_hook = False
+    if settings_path.exists():
+        try:
+            with open(settings_path) as f:
+                settings = json.load(f)
+            for hook_group in settings.get("hooks", {}).values():
+                for entry in hook_group:
+                    for hook in entry.get("hooks", []):
+                        if "afterimage" in hook.get("command", ""):
+                            settings_has_hook = True
+                            break
+                    if settings_has_hook:
+                        break
+                if settings_has_hook:
+                    break
+        except Exception:
+            settings_has_hook = False
+
+    diagnostics = {
+        "config": {
+            "path": str(config_path),
+            "exists": config_path.exists(),
+            "backend": config.backend,
+            "hook_seen_write_key": config.hook.seen_write_key,
+        },
+        "storage": {
+            "sqlite_path": str(sqlite_path),
+            "sqlite_exists": sqlite_path.exists(),
+            "sqlite_size_bytes": sqlite_path.stat().st_size if sqlite_path.exists() else 0,
+        },
+        "optional_dependencies": optional_modules,
+        "embeddings": {
+            "model": config.embeddings.model,
+            "device": config.embeddings.device,
+            "cache_path": str(model_cache),
+            "cache_exists": model_cache.exists(),
+        },
+        "hook": {
+            "script_path": str(hook_path),
+            "script_exists": hook_path.exists(),
+            "settings_path": str(settings_path),
+            "settings_exists": settings_path.exists(),
+            "settings_references_afterimage": settings_has_hook,
+        },
+    }
+
+    if args.json:
+        print(json.dumps(diagnostics, indent=2))
+    else:
+        print("\nAI-AfterImage Doctor")
+        print("=" * 40)
+        print(f"Config:       {config_path} ({'found' if config_path.exists() else 'missing'})")
+        print(f"Backend:      {config.backend}")
+        print(f"SQLite DB:    {sqlite_path} ({_format_bytes(diagnostics['storage']['sqlite_size_bytes']) if sqlite_path.exists() else 'missing'})")
+        print(f"Hook key:     {config.hook.seen_write_key}")
+        print(f"Hook script:  {'found' if hook_path.exists() else 'missing'}")
+        print(f"Settings:     {'references AfterImage' if settings_has_hook else 'no AfterImage hook reference found'}")
+        print(f"Model cache:  {'found' if model_cache.exists() else 'missing'}")
+
+        print("\nOptional dependencies")
+        for name, available in optional_modules.items():
+            print(f"  {name:<24} {'OK' if available else 'missing'}")
 
     return 0
 
@@ -958,6 +1062,15 @@ def main():
         help="Output as JSON"
     )
 
+    # doctor command
+    doctor_parser = subparsers.add_parser(
+        "doctor", help="Show local environment diagnostics"
+    )
+    doctor_parser.add_argument(
+        "--json", action="store_true",
+        help="Output as JSON"
+    )
+
     args = parser.parse_args()
 
     if args.command is None:
@@ -979,6 +1092,7 @@ def main():
         "churn": cmd_churn,
         "hotspots": cmd_hotspots,
         "files": cmd_files_by_tier,
+        "doctor": cmd_doctor,
     }
 
     handler = commands.get(args.command)

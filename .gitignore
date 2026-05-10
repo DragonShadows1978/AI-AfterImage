@@ -38,5 +38,11 @@ logs/
 .coverage
 htmlcov/
 launch.txt
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
 # Developer Mode Marker
 .dev_mode

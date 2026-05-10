@@ -6,10 +6,33 @@ These tests verify that the three mission integrations work correctly:
 - mission_9b9a40cb: AST Parser System
 - mission_408d146a: Semantic Intelligence System
 """
+from importlib.metadata import version
+
 import pytest
 from pathlib import Path
 import tempfile
 import os
+
+
+def require_ast_dependencies():
+    """Skip tests that require the optional AST parser extra."""
+    for module_name in (
+        "tree_sitter",
+        "tree_sitter_python",
+        "tree_sitter_javascript",
+        "tree_sitter_typescript",
+        "tree_sitter_rust",
+        "tree_sitter_go",
+        "tree_sitter_c",
+        "tree_sitter_cpp",
+    ):
+        pytest.importorskip(module_name)
+
+
+def require_semantic_index_dependencies():
+    """Skip tests that require tree-sitter-backed semantic indexing."""
+    pytest.importorskip("tree_sitter")
+    pytest.importorskip("tree_sitter_python")
 
 
 class TestLanguageDetection:
@@ -177,6 +200,11 @@ print("Hello from shebang script")
 
 class TestASTParser:
     """Test AST parser integration."""
+
+    @pytest.fixture(autouse=True)
+    def _require_ast_extra(self, request):
+        if request.node.name != "test_import_ast_parser":
+            require_ast_dependencies()
 
     def test_import_ast_parser(self):
         """Verify AST parser module imports correctly."""
@@ -377,6 +405,7 @@ class TestSemanticIndex:
 
     def test_index_python_file(self):
         """Index a Python file and find symbols."""
+        require_semantic_index_dependencies()
         from afterimage.semantic_index import SemanticIndex
 
         code = '''
@@ -408,6 +437,7 @@ def main():
 
     def test_hover_info(self):
         """Test hover information provider."""
+        require_semantic_index_dependencies()
         from afterimage.semantic_index import SemanticIndex, HoverProvider
 
         code = '''
@@ -428,6 +458,7 @@ class TestEndToEndIntegration:
 
     def test_language_to_ast_pipeline(self):
         """Test full pipeline from language detection to AST parsing."""
+        require_ast_dependencies()
         from afterimage.language_detection import detect_language
         from afterimage.ast_parser import ASTParserFactory
 
@@ -460,6 +491,7 @@ class DataProcessor:
 
     def test_filter_with_language_to_ast(self):
         """Test CodeFilter -> LanguageResult -> AST pipeline."""
+        require_ast_dependencies()
         from afterimage.filter import CodeFilter
         from afterimage.ast_parser import ASTParserFactory
 
@@ -495,6 +527,8 @@ class UserService {
 
     def test_full_semantic_pipeline(self):
         """Test full pipeline: detect -> parse -> index -> query."""
+        require_ast_dependencies()
+        require_semantic_index_dependencies()
         from afterimage.language_detection import detect_language
         from afterimage.ast_parser import ASTParserFactory
         from afterimage.semantic_index import SemanticIndex
@@ -554,7 +588,7 @@ class TestModuleExports:
             __version__,
         )
 
-        assert __version__ == "0.4.0"
+        assert __version__ == version("ai-afterimage")
         assert LanguageDetector is not None
         assert callable(get_ast_parser)
         assert callable(get_semantic_index)
@@ -566,6 +600,7 @@ class TestModuleExports:
         assert ASTResult is not None
 
         # Then import parser factory - requires tree-sitter
+        require_ast_dependencies()
         from afterimage.ast_parser import ASTParserFactory
         factory = ASTParserFactory()
         assert factory is not None
@@ -577,6 +612,7 @@ class TestModuleExports:
         assert Symbol is not None
 
         # Then import analyzers - may require tree-sitter
+        require_semantic_index_dependencies()
         from afterimage.semantic_index import SemanticIndex
         si = SemanticIndex()
         assert si is not None

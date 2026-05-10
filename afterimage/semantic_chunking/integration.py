@@ -9,7 +9,6 @@ This module provides the bridge between:
 Part of AfterImage Semantic Chunking v0.3.0.
 """
 
-import sys
 import logging
 from typing import Optional, List, Dict, Any
 from pathlib import Path
@@ -192,9 +191,11 @@ class AfterImageEmbeddingAdapter:
         """
         if not query_embedding or not code_embedding:
             return 0.0
+        if len(query_embedding) != len(code_embedding):
+            return 0.0
 
         try:
-            dot_product = sum(a * b for a, b in zip(query_embedding, code_embedding))
+            dot_product = sum(a * b for a, b in zip(query_embedding, code_embedding, strict=True))
             norm_a = math.sqrt(sum(a * a for a in query_embedding))
             norm_b = math.sqrt(sum(b * b for b in code_embedding))
             if norm_a == 0 or norm_b == 0:
@@ -369,7 +370,7 @@ class SemanticContextInjector:
                 "file_path": result_dict.get("file_path", ""),
                 "timestamp": result_dict.get("timestamp", ""),
                 "context": result_dict.get("context", ""),
-                "semantic_score": result_dict.get("semantic_score", 0.0),
+                "semantic_score": result_dict.get("semantic_score", 0.5),
             })
 
         # Use the hook-optimized injection method

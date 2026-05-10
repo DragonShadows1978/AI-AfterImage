@@ -293,6 +293,7 @@ class TestPipelineWithEmbeddings:
     @pytest.mark.slow
     def test_semantic_search_with_embeddings(self, test_kb):
         """Should perform semantic search with embeddings."""
+        pytest.importorskip("sentence_transformers")
         try:
             from afterimage.embeddings import EmbeddingGenerator
             embedder = EmbeddingGenerator()
@@ -333,6 +334,7 @@ class TestPipelineWithEmbeddings:
     @pytest.mark.slow
     def test_hybrid_search_combines_scores(self, test_kb):
         """Should combine FTS and semantic scores."""
+        pytest.importorskip("sentence_transformers")
         try:
             from afterimage.embeddings import EmbeddingGenerator
             embedder = EmbeddingGenerator()
@@ -641,6 +643,7 @@ class TestOfflineFunctionality:
     @pytest.mark.slow
     def test_embeddings_use_cached_model(self):
         """Embeddings should use locally cached model (no download after first use)."""
+        pytest.importorskip("sentence_transformers")
         try:
             from afterimage.embeddings import EmbeddingGenerator, get_cache_dir
         except ImportError:
@@ -678,6 +681,7 @@ class TestOfflineFunctionality:
     @pytest.mark.slow
     def test_full_pipeline_offline(self, temp_dir):
         """Full pipeline should work offline after model caching."""
+        pytest.importorskip("sentence_transformers")
         try:
             from afterimage.embeddings import EmbeddingGenerator, get_cache_dir
         except ImportError:

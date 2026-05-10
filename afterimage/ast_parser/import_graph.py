@@ -11,9 +11,12 @@ Provides:
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Set
 
 from .models import ImportInfo
+
+if TYPE_CHECKING:
+    from .models import ASTResult
 
 
 @dataclass
@@ -171,7 +174,7 @@ class ImportGraph:
         if self._transitive_computed:
             return
 
-        for module_name, node in self.nodes.items():
+        for node in self.nodes.values():
             visited = set()
             queue = deque(node.direct_dependencies)
 
